@@ -70,43 +70,76 @@ fn pad_block(msg: &[u8]) -> [u8; 512] {
     padded_msg
 }
 
-fn f_t(i: i32, x: u32, y: u32, z: u32) -> u32 {
+fn f(x: u32, y: u32, z: u32, t: u32) -> u32 {
+    match t {
+        0..20 => ch(x, y, z),
+        20..40 => parity(x, y, z),
+        40..60 => maj(x, y, z),
+        _ => parity(x, y, z)
+    }
+}
+
+fn rotl_u32(v: u32, n: u8) -> u32 {
+   (v << n) | (v >> (32 - n))
+}
+
+fn ch(x: u32, y: u32, z: u32) -> u32 {
+    (x & y) ^ (!x & z)
+}
+
+fn parity(x: u32, y: u32, z: u32) -> u32 {
+    x ^ y ^ z
+}
+
+fn maj(x: u32, y: u32, z: u32) -> u32 {
+    (x & y) ^ (x & z) ^ (y & z)
+}
+
+fn K(t: u32) -> u32 {
+    todo!()
+}
+
+fn W(t: u32) -> u32 {
     todo!()
 }
 
 fn main() {
-    let mut sha1_hash = SHA1Hash::new();
+    let mut hash = SHA1Hash::new();
     let test_string = String::from("test");
 
-    // 1. Prepare the message schedule
-    let msg_padded = pad_block(&test_string.as_bytes());
-    println!("test str: {:?}", test_string.as_bytes());
-    println!("test str padded: {:?}", msg_padded);
 
-    // 2. Initialize the first five working variables
-    let mut t: u32;
-    let mut a = sha1_hash.part0;
-    let mut b = sha1_hash.part1;
-    let mut c = sha1_hash.part2;
-    let mut d = sha1_hash.part3;
-    let mut e = sha1_hash.part4;
+    for t in 0..80 {
+        // 1. Prepare the message schedule
+        let msg_padded = pad_block(&test_string.as_bytes());
+        println!("test str: {:?}", test_string.as_bytes());
+        println!("test str padded: {:?}", msg_padded);
 
-    // 3. Process the eighty schedule messages
-    for _i in 0..=79 {
-        // t = ROTL^5(a) + f_t(b, c, d) + e + K_t + W_t
+        // 2. Initialize the first five working variables
+        let mut T: u32 = 0; // T
+        let mut a = hash.part0;
+        let mut b = hash.part1;
+        let mut c = hash.part2;
+        let mut d = hash.part3;
+        let mut e = hash.part4;
+
+        // 3. Process the eighty schedule messages
+        T = rotl_u32(a, 5) + f(b, c, d, t) + e + K(t) + W(t); // TODO: XOR add!
         e = d;
         d = c;
-        // c = ROTL^30(b);
+        c = rotl_u32(b, 30);
         b = a;
-        a = t;
+        a = T;
+
+        // 4. Compute the ith intermediate hash value H^(i)
+        hash.part0 = a + hash.part0;
+        hash.part1 = b + hash.part1;
+        hash.part2 = c + hash.part2;
+        hash.part3 = d + hash.part3;
+        hash.part4 = e + hash.part4;
     }
 
-    // 4. Compute the ith intermediate hash value H^(i)
-    sha1_hash.part0 = a + sha1_hash.part0;
-    sha1_hash.part1 = b + sha1_hash.part1;
-    sha1_hash.part2 = c + sha1_hash.part2;
-    sha1_hash.part3 = d + sha1_hash.part3;
-    sha1_hash.part4 = e + sha1_hash.part4;
+    let digest: String = hash.into();
+    println!("{}", digest);
 }
 
 #[cfg(test)]
@@ -114,7 +147,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        assert_eq!(4, 4);
+    fn pad_block_works() {
+        todo!()
+    }
+
+    #[test]
+    fn rotl_u32_works_1() {
+        let x = 0xff000000;
+        let n = 8;
+        let expected = 0x000000ff;
+        let actual = rotl_u32(x, n);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn rotl_u32_works_2() {
+        let x = 0x00050500;
+        let n = 16;
+        let expected = 0x05000005;
+        let actual = rotl_u32(x, n);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn rotl_u32_works_3() {
+        let x = 0x80000000;
+        let n = 1;
+        let expected = 0x00000001;
+        let actual = rotl_u32(x, n);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn ch_works() {
+        todo!()
+    }
+
+    #[test]
+    fn parity_works() {
+        todo!()
+    }
+
+    #[test]
+    fn k_works() {
+        todo!()
+    }
+
+    #[test]
+    fn w_works() {
+        todo!()
     }
 }
