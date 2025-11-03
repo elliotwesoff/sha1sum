@@ -6,28 +6,12 @@
 // 
 // SHA-1 operates on 32-bit words.
 //
-// SHA-1 uses a sequence of logical functions, f0, f1,…, f79.  Each function ft, where 0 <= t <= 79, 
-// operates on three 32-bit words, x, y, and z, and produces a 32-bit word as output.  The function ft 
-// (x, y, z) is defined as follows:
-//
-//  f_t(x, y, z) = {
-//    Ch(x,y,z)        = (x ^ y) xor (!x ^ z)                   0  <= t <= 19
-//    Parity(x, y, z)  = x xor y xor z                          20 <= t <= 39
-//    Maj(x, y, z)     = (x ^ y) xor (x ^ z) xor (y ^ z)        40 <= t <= 59
-//    Parity(x, y, z)  = x xor y xor z                          60 <= t <= 79
-//  }
-//
-// SHA-1 Constants:
-//
-//  K_t = {
-//      5a827999            0 <= t <= 19
-//      6ed9eba1            20 <= t <= 39
-//      8f1bbcdc            40 <= t <= 59
-//      ca62c1d6            60 <= t <= 79
-//  }
+// For the secure hash algorithms, the size of the message block - m bits - depends on the 
+// algorithm. 
+// a) For SHA-1, SHA-224 and SHA-256, each message block has 512 bits, which are 
+// represented as a sequence of sixteen 32-bit words.
 
-
-struct SHA1Hash {
+struct SHA1 {
     part0: u32,
     part1: u32,
     part2: u32,
@@ -35,9 +19,9 @@ struct SHA1Hash {
     part4: u32
 }
 
-impl SHA1Hash {
+impl SHA1 {
     pub fn new() -> Self {
-        SHA1Hash {
+        SHA1 {
             part0: 0x67452301,
             part1: 0xefcdab89,
             part2: 0x98badcfe,
@@ -47,24 +31,33 @@ impl SHA1Hash {
     }
 }
 
-impl Into<String> for SHA1Hash {
+impl Into<String> for SHA1 {
     fn into(self) -> String {
         let nums = [self.part0, self.part1, self.part2, self.part3, self.part4];
-        nums.iter().map(|n| n.to_string()).collect::<String>()
+        // let s = nums.iter().map(|n| format!("{:x}", n)).collect::<String>();
+        nums.iter().map(|n| {
+            let s = format!("{:08x}", n);
+            println!("{}", s);
+            s
+        })
+        .collect::<String>()
     }
 }
 
-fn pad_block(msg: &[u8]) -> [u8; 512] {
+fn pad_block(msg: &[u8]) -> [u8; 64] {
     let len = msg.len();
     let len_64: u64 = len.try_into().unwrap();
-    let mut padded_msg = [0; 512]; // initialized block is pre-padded
+    let mut padded_msg = [0; 64]; // initialized block comes with pre-padding :3
 
+    // TODO: this may not be correct. does the 1 bit always
+    //       align with an addressable memory boundary?   
     padded_msg[..len].clone_from_slice(&msg);
     padded_msg[len] = 0x80; // place a 1 bit after the msg
 
     // add the 64 bit length to the end of the block
+    // TODO: is this a hack? can we do this better?
     for (i, x) in len_64.to_ne_bytes().iter().enumerate() {
-        padded_msg[511 - i] = *x;
+        padded_msg[63 - i] = *x;
     }
 
     padded_msg
@@ -75,7 +68,8 @@ fn f(x: u32, y: u32, z: u32, t: u32) -> u32 {
         0..20 => ch(x, y, z),
         20..40 => parity(x, y, z),
         40..60 => maj(x, y, z),
-        _ => parity(x, y, z)
+        60..80 => parity(x, y, z),
+        _ => panic!("invalid t parameter for f(): {}", t)
     }
 }
 
@@ -95,51 +89,80 @@ fn maj(x: u32, y: u32, z: u32) -> u32 {
     (x & y) ^ (x & z) ^ (y & z)
 }
 
+fn _add(a: u32, b: u32) -> u32 {
+    // let c: u64 = (a + b).try_into().unwrap();
+    // (c % 0x00000001000000).try_into().unwrap()
+    a + b
+}
+
 fn K(t: u32) -> u32 {
-    todo!()
+    match t {
+        0..20 => 0x5a827999,
+        20..40 => 0x6ed9eba1,
+        40..60 => 0x8f1bbcdc,
+        60..80 => 0xca62c1d6,
+        _ => panic!("invalid t parameter for K(): {}", t)
+    }
 }
 
 fn W(t: u32) -> u32 {
-    todo!()
+    match t {
+        0..16 => 0,
+        16..80 => 0,
+        _ => panic!("invalid t parameter for W(): {}", t)
+    }
 }
 
 fn main() {
-    let mut hash = SHA1Hash::new();
+    let mut h = SHA1::new();
     let test_string = String::from("test");
 
+    // in this instance, there is only *one* message block.
+    // the entire message is less than 512 bits (512b / 8b == 64B).
+    //
+    // in the eventual case, we'll need to implement the "for i=1 to N"
+    // to iterate over all 512b blocks of M, like in the spec.
 
+    // 1. Prepare the message schedule
+    let msg_padded = pad_block(&test_string.as_bytes());
+    println!("test str: {:?}", test_string.as_bytes());
+    println!("test str padded: {:?}", msg_padded);
+
+    // 2. Initialize the first five working variables
+    let mut T: u32;
+    let mut a = h.part0;
+    let mut b = h.part1;
+    let mut c = h.part2;
+    let mut d = h.part3;
+    let mut e = h.part4;
+
+    // 3. Process the eighty schedule messages
     for t in 0..80 {
-        // 1. Prepare the message schedule
-        let msg_padded = pad_block(&test_string.as_bytes());
-        println!("test str: {:?}", test_string.as_bytes());
-        println!("test str padded: {:?}", msg_padded);
+        // chatgpt claims that the wrap around for addition of 32 bit
+        // ints works the same as addition mod 2^32. if we get issues,
+        // look into this first.
+        T = rotl_u32(a, 5)
+                .wrapping_add(f(b, c, d, t))
+                .wrapping_add(e)
+                .wrapping_add(K(t))
+                .wrapping_add(W(t));
 
-        // 2. Initialize the first five working variables
-        let mut T: u32 = 0; // T
-        let mut a = hash.part0;
-        let mut b = hash.part1;
-        let mut c = hash.part2;
-        let mut d = hash.part3;
-        let mut e = hash.part4;
-
-        // 3. Process the eighty schedule messages
-        T = rotl_u32(a, 5) + f(b, c, d, t) + e + K(t) + W(t); // TODO: XOR add!
         e = d;
         d = c;
         c = rotl_u32(b, 30);
         b = a;
         a = T;
-
-        // 4. Compute the ith intermediate hash value H^(i)
-        hash.part0 = a + hash.part0;
-        hash.part1 = b + hash.part1;
-        hash.part2 = c + hash.part2;
-        hash.part3 = d + hash.part3;
-        hash.part4 = e + hash.part4;
     }
 
-    let digest: String = hash.into();
-    println!("{}", digest);
+    // 4. Compute the ith intermediate hash value, H^(i)
+    h.part0 = a.wrapping_add(h.part0);
+    h.part1 = b.wrapping_add(h.part1);
+    h.part2 = c.wrapping_add(h.part2);
+    h.part3 = d.wrapping_add(h.part3);
+    h.part4 = e.wrapping_add(h.part4);
+
+    let digest: String = h.into();
+    println!("digested: {}", digest);
 }
 
 #[cfg(test)]
@@ -180,17 +203,43 @@ mod tests {
 
     #[test]
     fn ch_works() {
-        todo!()
+        assert_eq!(328, ch(100, 200, 300));
     }
 
     #[test]
     fn parity_works() {
-        todo!()
+        assert_eq!(384, parity(100, 200, 300));
     }
 
     #[test]
-    fn k_works() {
-        todo!()
+    fn maj_works() {
+        assert_eq!(108, maj(100, 200, 300));
+    }
+
+    #[test]
+    fn k_works_1() {
+        assert_eq!(0x5a827999, K(0));
+        assert_eq!(0x5a827999, K(10));
+        assert_eq!(0x5a827999, K(19));
+    }
+
+    #[test]
+    fn k_works_2() {
+        assert_eq!(0x6ed9eba1, K(20));
+        assert_eq!(0x6ed9eba1, K(30));
+        assert_eq!(0x6ed9eba1, K(39));
+    }
+
+    #[test]
+    fn k_works_3() {
+        assert_eq!(0x8f1bbcdc, K(40));
+        assert_eq!(0x8f1bbcdc, K(50));
+        assert_eq!(0x8f1bbcdc, K(59));
+    }
+
+    #[test]
+    fn k_works_4() {
+        assert_eq!(0xca62c1d6, K(60));
     }
 
     #[test]
