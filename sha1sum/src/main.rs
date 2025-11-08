@@ -11,12 +11,14 @@
 // a) For SHA-1, SHA-224 and SHA-256, each message block has 512 bits, which are 
 // represented as a sequence of sixteen 32-bit words.
 
+use std::io::{self, BufReader, Read};
+
 struct SHA1 {
     part0: u32,
     part1: u32,
     part2: u32,
     part3: u32,
-    part4: u32
+    part4: u32,
 }
 
 impl SHA1 {
@@ -29,140 +31,128 @@ impl SHA1 {
             part4: 0xc3d2e1f0
         }
     }
+
+    pub fn ingest(&mut self, stream: &[u8]) -> io::Result<()> {
+        let mut stream_reader = BufReader::new(stream);
+        let mut buf = [0u8; 64];
+        loop {
+            let mut chunk = stream_reader.by_ref().take(64); // 512 bits
+            let n = chunk.read(&mut buf)?;
+            self.ingest_block(&buf);
+            if n < 64 {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn digest(&self) -> String {
+        let nums = [self.part0, self.part1, self.part2, self.part3, self.part4];
+        nums.iter().map(|n| format!("{:08x}", n))
+                   .collect::<String>()
+    }
+
+    fn ingest_block(&mut self, block: &[u8]) {
+        // 1. Prepare the message schedule
+        //    ??? TODO
+
+        // 2. Initialize the first five working variables
+        let mut tmp: u32;
+        let mut a = self.part0;
+        let mut b = self.part1;
+        let mut c = self.part2;
+        let mut d = self.part3;
+        let mut e = self.part4;
+
+        // 3. Process the eighty schedule messages
+        for t in 0..80 {
+            // chatgpt claims that the wrap around for addition of 32 bit
+            // ints works the same as addition mod 2^32. if we get issues,
+            // look into this first.
+            tmp = self.rotl_u32(a, 5)
+                    .wrapping_add(self.f(b, c, d, t))
+                    .wrapping_add(e)
+                    .wrapping_add(self.K(t))
+                    .wrapping_add(self.W(t));
+
+            e = d;
+            d = c;
+            c = self.rotl_u32(b, 30);
+            b = a;
+            a = tmp;
+        }
+
+        // 4. Compute the ith intermediate hash value, H^(i)
+        self.part0 = a.wrapping_add(self.part0);
+        self.part1 = b.wrapping_add(self.part1);
+        self.part2 = c.wrapping_add(self.part2);
+        self.part3 = d.wrapping_add(self.part3);
+        self.part4 = e.wrapping_add(self.part4);
+    }
+
+    fn f(&self, x: u32, y: u32, z: u32, t: u32) -> u32 {
+        match t {
+            0..20 => self.ch(x, y, z),
+            20..40 => self.parity(x, y, z),
+            40..60 => self.maj(x, y, z),
+            60..80 => self.parity(x, y, z),
+            _ => panic!("invalid t parameter for f(): {}", t)
+        }
+    }
+
+    fn rotl_u32(&self, v: u32, n: u8) -> u32 {
+       (v << n) | (v >> (32 - n))
+    }
+
+    fn ch(&self, x: u32, y: u32, z: u32) -> u32 {
+        (x & y) ^ (!x & z)
+    }
+
+    fn parity(&self, x: u32, y: u32, z: u32) -> u32 {
+        x ^ y ^ z
+    }
+
+    fn maj(&self, x: u32, y: u32, z: u32) -> u32 {
+        (x & y) ^ (x & z) ^ (y & z)
+    }
+
+    fn K(&self, t: u32) -> u32 {
+        match t {
+            0..20 => 0x5a827999,
+            20..40 => 0x6ed9eba1,
+            40..60 => 0x8f1bbcdc,
+            60..80 => 0xca62c1d6,
+            _ => panic!("invalid t provided to K(): {}", t)
+        }
+    }
+
+    fn W(&self, t: u32) -> u32 {
+        // TODO
+        match t {
+            0..16 => 0,
+            16..80 => 0,
+            _ => panic!("invalid t provided to W(): {}", t)
+        }
+    }
 }
 
 impl Into<String> for SHA1 {
     fn into(self) -> String {
         let nums = [self.part0, self.part1, self.part2, self.part3, self.part4];
-        // let s = nums.iter().map(|n| format!("{:x}", n)).collect::<String>();
-        nums.iter().map(|n| {
-            let s = format!("{:08x}", n);
-            println!("{}", s);
-            s
-        })
-        .collect::<String>()
-    }
-}
-
-fn pad_block(msg: &[u8]) -> [u8; 64] {
-    let len = msg.len();
-    let len_64: u64 = len.try_into().unwrap();
-    let mut padded_msg = [0; 64]; // initialized block comes with pre-padding :3
-
-    // TODO: this may not be correct. does the 1 bit always
-    //       align with an addressable memory boundary?   
-    padded_msg[..len].clone_from_slice(&msg);
-    padded_msg[len] = 0x80; // place a 1 bit after the msg
-
-    // add the 64 bit length to the end of the block
-    // TODO: is this a hack? can we do this better?
-    for (i, x) in len_64.to_ne_bytes().iter().enumerate() {
-        padded_msg[63 - i] = *x;
-    }
-
-    padded_msg
-}
-
-fn f(x: u32, y: u32, z: u32, t: u32) -> u32 {
-    match t {
-        0..20 => ch(x, y, z),
-        20..40 => parity(x, y, z),
-        40..60 => maj(x, y, z),
-        60..80 => parity(x, y, z),
-        _ => panic!("invalid t parameter for f(): {}", t)
-    }
-}
-
-fn rotl_u32(v: u32, n: u8) -> u32 {
-   (v << n) | (v >> (32 - n))
-}
-
-fn ch(x: u32, y: u32, z: u32) -> u32 {
-    (x & y) ^ (!x & z)
-}
-
-fn parity(x: u32, y: u32, z: u32) -> u32 {
-    x ^ y ^ z
-}
-
-fn maj(x: u32, y: u32, z: u32) -> u32 {
-    (x & y) ^ (x & z) ^ (y & z)
-}
-
-fn _add(a: u32, b: u32) -> u32 {
-    // let c: u64 = (a + b).try_into().unwrap();
-    // (c % 0x00000001000000).try_into().unwrap()
-    a + b
-}
-
-fn K(t: u32) -> u32 {
-    match t {
-        0..20 => 0x5a827999,
-        20..40 => 0x6ed9eba1,
-        40..60 => 0x8f1bbcdc,
-        60..80 => 0xca62c1d6,
-        _ => panic!("invalid t parameter for K(): {}", t)
-    }
-}
-
-fn W(t: u32) -> u32 {
-    match t {
-        0..16 => 0,
-        16..80 => 0,
-        _ => panic!("invalid t parameter for W(): {}", t)
+        nums.iter().map(|n| format!("{:08x}", n))
+                   .collect::<String>()
     }
 }
 
 fn main() {
-    let mut h = SHA1::new();
-    let test_string = String::from("test");
+    let mut sha1 = SHA1::new();
 
     // in this instance, there is only *one* message block.
     // the entire message is less than 512 bits (512b / 8b == 64B).
-    //
-    // in the eventual case, we'll need to implement the "for i=1 to N"
-    // to iterate over all 512b blocks of M, like in the spec.
+    let input = String::from("test");
 
-    // 1. Prepare the message schedule
-    let msg_padded = pad_block(&test_string.as_bytes());
-    println!("test str: {:?}", test_string.as_bytes());
-    println!("test str padded: {:?}", msg_padded);
-
-    // 2. Initialize the first five working variables
-    let mut T: u32;
-    let mut a = h.part0;
-    let mut b = h.part1;
-    let mut c = h.part2;
-    let mut d = h.part3;
-    let mut e = h.part4;
-
-    // 3. Process the eighty schedule messages
-    for t in 0..80 {
-        // chatgpt claims that the wrap around for addition of 32 bit
-        // ints works the same as addition mod 2^32. if we get issues,
-        // look into this first.
-        T = rotl_u32(a, 5)
-                .wrapping_add(f(b, c, d, t))
-                .wrapping_add(e)
-                .wrapping_add(K(t))
-                .wrapping_add(W(t));
-
-        e = d;
-        d = c;
-        c = rotl_u32(b, 30);
-        b = a;
-        a = T;
-    }
-
-    // 4. Compute the ith intermediate hash value, H^(i)
-    h.part0 = a.wrapping_add(h.part0);
-    h.part1 = b.wrapping_add(h.part1);
-    h.part2 = c.wrapping_add(h.part2);
-    h.part3 = d.wrapping_add(h.part3);
-    h.part4 = e.wrapping_add(h.part4);
-
-    let digest: String = h.into();
-    println!("digested: {}", digest);
+    sha1.ingest(input.as_bytes()).expect("couldn't ingest input");
+    println!("{}", sha1.digest());
 }
 
 #[cfg(test)]
@@ -170,76 +160,81 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pad_block_works() {
-        todo!()
-    }
-
-    #[test]
     fn rotl_u32_works_1() {
+        let sha1 = SHA1::new();
         let x = 0xff000000;
         let n = 8;
         let expected = 0x000000ff;
-        let actual = rotl_u32(x, n);
+        let actual = sha1.rotl_u32(x, n);
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn rotl_u32_works_2() {
+        let sha1 = SHA1::new();
         let x = 0x00050500;
         let n = 16;
         let expected = 0x05000005;
-        let actual = rotl_u32(x, n);
+        let actual = sha1.rotl_u32(x, n);
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn rotl_u32_works_3() {
+        let sha1 = SHA1::new();
         let x = 0x80000000;
         let n = 1;
         let expected = 0x00000001;
-        let actual = rotl_u32(x, n);
+        let actual = sha1.rotl_u32(x, n);
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn ch_works() {
-        assert_eq!(328, ch(100, 200, 300));
+        let sha1 = SHA1::new();
+        assert_eq!(328, sha1.ch(100, 200, 300));
     }
 
     #[test]
     fn parity_works() {
-        assert_eq!(384, parity(100, 200, 300));
+        let sha1 = SHA1::new();
+        assert_eq!(384, sha1.parity(100, 200, 300));
     }
 
     #[test]
     fn maj_works() {
-        assert_eq!(108, maj(100, 200, 300));
+        let sha1 = SHA1::new();
+        assert_eq!(108, sha1.maj(100, 200, 300));
     }
 
     #[test]
     fn k_works_1() {
-        assert_eq!(0x5a827999, K(0));
-        assert_eq!(0x5a827999, K(10));
-        assert_eq!(0x5a827999, K(19));
+        let sha1 = SHA1::new();
+        assert_eq!(0x5a827999, sha1.K(0));
+        assert_eq!(0x5a827999, sha1.K(10));
+        assert_eq!(0x5a827999, sha1.K(19));
     }
 
     #[test]
     fn k_works_2() {
-        assert_eq!(0x6ed9eba1, K(20));
-        assert_eq!(0x6ed9eba1, K(30));
-        assert_eq!(0x6ed9eba1, K(39));
+        let sha1 = SHA1::new();
+        assert_eq!(0x6ed9eba1, sha1.K(20));
+        assert_eq!(0x6ed9eba1, sha1.K(30));
+        assert_eq!(0x6ed9eba1, sha1.K(39));
     }
 
     #[test]
     fn k_works_3() {
-        assert_eq!(0x8f1bbcdc, K(40));
-        assert_eq!(0x8f1bbcdc, K(50));
-        assert_eq!(0x8f1bbcdc, K(59));
+        let sha1 = SHA1::new();
+        assert_eq!(0x8f1bbcdc, sha1.K(40));
+        assert_eq!(0x8f1bbcdc, sha1.K(50));
+        assert_eq!(0x8f1bbcdc, sha1.K(59));
     }
 
     #[test]
     fn k_works_4() {
-        assert_eq!(0xca62c1d6, K(60));
+        let sha1 = SHA1::new();
+        assert_eq!(0xca62c1d6, sha1.K(60));
     }
 
     #[test]
