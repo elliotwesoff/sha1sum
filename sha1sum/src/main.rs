@@ -1,17 +1,4 @@
-// SHA-1 notes:
-// msg size (bits): < 2^64
-// block size (bits): 512
-// word size (bits): 32
-// message digest size (bits): 160
-// 
-// SHA-1 operates on 32-bit words.
-//
-// For the secure hash algorithms, the size of the message block - m bits - depends on the 
-// algorithm. 
-// a) For SHA-1, SHA-224 and SHA-256, each message block has 512 bits, which are 
-// represented as a sequence of sixteen 32-bit words.
-
-use std::io::{self, BufReader, Read};
+use std::{fmt::Display, io::{self, BufReader, Read}};
 
 struct SHA1 {
     part0: u32,
@@ -34,29 +21,27 @@ impl SHA1 {
 
     pub fn ingest(&mut self, stream: &[u8]) -> io::Result<()> {
         let mut stream_reader = BufReader::new(stream);
-        loop {
+        let mut n = 64;
+        while n < 64 {
             let mut buf = [0u8; 64];
             let mut chunk = stream_reader.by_ref().take(64); // 512 bits
-            let n = chunk.read(&mut buf)?;
+            n = chunk.read(&mut buf)?;
             self.ingest_block(&buf);
-            if n < 64 {
-                break;
-            }
         }
         Ok(())
     }
 
     pub fn digest(&self) -> String {
-        let nums = [self.part0, self.part1, self.part2, self.part3, self.part4];
-        nums.iter().map(|n| format!("{:08x}", n))
-                   .collect::<String>()
+        format!(
+            "{:08x}{:08x}{:08x}{:08x}{:08x}",
+            self.part0, self.part1, self.part2, self.part3, self.part4
+        )
     }
 
     fn ingest_block(&mut self, block: &[u8]) {
-        // 1. Prepare the message schedule
-        //     => calculated dynamically
+        // 1. Prepare the message schedule (calculated dynamically)
 
-        // 2. Initialize the first five working variables
+        // 2. Initialize the first five working variables (inc. temp var T)
         let mut tmp: u32;
         let mut a = self.part0;
         let mut b = self.part1;
@@ -152,11 +137,9 @@ impl SHA1 {
     }
 }
 
-impl Into<String> for SHA1 {
-    fn into(self) -> String {
-        let nums = [self.part0, self.part1, self.part2, self.part3, self.part4];
-        nums.iter().map(|n| format!("{:08x}", n))
-                   .collect::<String>()
+impl Display for SHA1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.digest())
     }
 }
 
@@ -168,12 +151,31 @@ fn main() {
     let input = String::from("test");
 
     sha1.ingest(input.as_bytes()).expect("couldn't ingest input");
-    println!("{}", sha1.digest());
+    println!("{}", sha1);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ingest_works() {
+        let mut sha1 = SHA1::new();
+        let input = String::from("test");
+        sha1.ingest(input.as_bytes()).expect("couldn't ingest input");
+        let expected = "4e1243bd22c66e76c2ba9eddc1f91394e57f9f83";
+        assert_eq!(expected, sha1.to_string());
+    }
+
+    #[test]
+    fn ingest_block_works() {
+        todo!()
+    }
+
+    #[test]
+    fn digest_works() {
+        todo!()
+    }
 
     #[test]
     fn rotl_u32_works_1() {
