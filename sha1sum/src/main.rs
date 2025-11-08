@@ -34,8 +34,8 @@ impl SHA1 {
 
     pub fn ingest(&mut self, stream: &[u8]) -> io::Result<()> {
         let mut stream_reader = BufReader::new(stream);
-        let mut buf = [0u8; 64];
         loop {
+            let mut buf = [0u8; 64];
             let mut chunk = stream_reader.by_ref().take(64); // 512 bits
             let n = chunk.read(&mut buf)?;
             self.ingest_block(&buf);
@@ -116,6 +116,7 @@ impl SHA1 {
         (x & y) ^ (x & z) ^ (y & z)
     }
 
+    #[allow(non_snake_case)]
     fn K(&self, t: u32) -> u32 {
         match t {
             0..20 => 0x5a827999,
@@ -126,6 +127,7 @@ impl SHA1 {
         }
     }
 
+    #[allow(non_snake_case)]
     fn W(&self, t: u32) -> u32 {
         // TODO
         match t {
