@@ -54,7 +54,7 @@ impl SHA1 {
 
     fn ingest_block(&mut self, block: &[u8]) {
         // 1. Prepare the message schedule
-        //    ??? TODO
+        //     => calculated dynamically
 
         // 2. Initialize the first five working variables
         let mut tmp: u32;
@@ -73,7 +73,7 @@ impl SHA1 {
                     .wrapping_add(self.f(b, c, d, t))
                     .wrapping_add(e)
                     .wrapping_add(self.K(t))
-                    .wrapping_add(self.W(t));
+                    .wrapping_add(self.W(block, t));
 
             e = d;
             d = c;
@@ -101,7 +101,8 @@ impl SHA1 {
     }
 
     fn rotl_u32(&self, v: u32, n: u8) -> u32 {
-       (v << n) | (v >> (32 - n))
+        // TODO: is there something equivalent in std?
+        (v << n) | (v >> (32 - n))
     }
 
     fn ch(&self, x: u32, y: u32, z: u32) -> u32 {
@@ -128,11 +129,24 @@ impl SHA1 {
     }
 
     #[allow(non_snake_case)]
-    fn W(&self, t: u32) -> u32 {
-        // TODO
+    fn W(&self, block: &[u8], t: u32) -> u32 {
         match t {
-            0..16 => 0,
-            16..80 => 0,
+            0..16 => {
+                // "the j'th word of the i'th message block."
+                // block is already the i'th message block,
+                // so we just take the j'th word (t).
+                let i = (t * 4) as usize;
+                let j = (i + 4) as usize;
+                let r = &block[i..j];
+                u32::from_be_bytes(r.try_into().unwrap())
+            }, 
+            16..80 => {
+                let w1 = self.W(block, t - 3);
+                let w2 = self.W(block, t - 8);
+                let w3 = self.W(block, t - 14);
+                let w4 = self.W(block, t - 16);
+                self.rotl_u32(w1 ^ w2 ^ w3 ^ w4, 1)
+            },
             _ => panic!("invalid t provided to W(): {}", t)
         }
     }
