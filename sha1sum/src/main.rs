@@ -19,6 +19,13 @@ impl SHA1 {
         }
     }
 
+    pub fn digest(&self) -> String {
+        format!(
+            "{:08x}{:08x}{:08x}{:08x}{:08x}",
+            self.part0, self.part1, self.part2, self.part3, self.part4
+        )
+    }
+
     pub fn ingest(&mut self, stream: &[u8]) -> io::Result<()> {
         let mut stream_reader = BufReader::new(stream);
         let mut n = 64;
@@ -29,13 +36,6 @@ impl SHA1 {
             self.ingest_block(&buf);
         }
         Ok(())
-    }
-
-    pub fn digest(&self) -> String {
-        format!(
-            "{:08x}{:08x}{:08x}{:08x}{:08x}",
-            self.part0, self.part1, self.part2, self.part3, self.part4
-        )
     }
 
     fn ingest_block(&mut self, block: &[u8]) {
@@ -164,7 +164,7 @@ mod tests {
         let input = String::from("test");
         sha1.ingest(input.as_bytes()).expect("couldn't ingest input");
         let expected = "4e1243bd22c66e76c2ba9eddc1f91394e57f9f83";
-        assert_eq!(expected, sha1.to_string());
+        assert_eq!(expected, sha1.digest());
     }
 
     #[test]
