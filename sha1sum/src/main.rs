@@ -75,6 +75,45 @@ impl SHA1 {
         self.part4 = e.wrapping_add(self.part4);
     }
 
+    fn pad_block(&self, block: &[u8]) -> [u8; 64] {
+        // seriously, get your thigh highs on for this one...
+        
+        // "der den lesen kann, hat ein vorteil...", jfc
+
+        // the entire message, M is padded so that it is a *multiple*
+        // of 512 bits (64B) in the case of SHA-1. then, the entire
+        // message is processed in N 512-bit chunks.
+
+        let len = block.len();
+
+        assert_eq!(
+            len <= 64, true,
+            "block passed to pad_block() must be <= 64B but is {}B",
+            len
+        );
+
+        let mut padded_msg = [0; 64]; // initialized buffer is pre-padded :3
+
+        // TODO: this may not be correct. does the 1 bit always
+        //       align with an addressable memory boundary?   
+        //       (we don't have to do any bitwise ops, right? v.v)
+        padded_msg[..len].clone_from_slice(&block);
+        padded_msg[len] = 0x80; // append a 1 bit to the message
+
+        let len_64: u64 = len.try_into().unwrap();
+
+        // add the 64 bit length to the end of the block
+        // TODO: is this a hack? can we do better?
+        // TODO: to_ne_bytes() may not be correct, but it produces
+        //       output that matches the PDF example. need to do
+        //       some more science on this...
+        for (i, x) in len_64.to_ne_bytes().iter().enumerate() {
+            padded_msg[63 - i] = *x;
+        }
+
+        padded_msg
+    }
+
     fn f(&self, x: u32, y: u32, z: u32, t: u32) -> u32 {
         match t {
             0..20 => self.ch(x, y, z),
@@ -146,8 +185,6 @@ impl Display for SHA1 {
 fn main() {
     let mut sha1 = SHA1::new();
 
-    // in this instance, there is only *one* message block.
-    // the entire message is less than 512 bits (512b / 8b == 64B).
     let input = String::from("test");
 
     sha1.ingest(input.as_bytes()).expect("couldn't ingest input");
@@ -174,6 +211,76 @@ mod tests {
 
     #[test]
     fn digest_works() {
+        todo!()
+    }
+
+    #[test]
+    fn pad_block_works_1() {
+        let sha1 = SHA1::new();
+        let input: [u8; 3] = ['a' as u8, 'b' as u8, 'c' as u8];
+        let output = sha1.pad_block(&input);
+        let mut expected = [0u8; 64];
+
+        expected[0] = 'a' as u8;
+        expected[1] = 'b' as u8;
+        expected[2] = 'c' as u8;
+        expected[3] = 0x80;
+        expected[63] = 3;
+
+        assert_eq!(output.len(), expected.len());
+
+        for (i, actual) in output.iter().enumerate() {
+            let expected = expected[i];
+            assert_eq!(
+                expected, *actual,
+                "padded output failed at index {}, {} != {} (expected != actual)",
+                i, expected, *actual
+            );
+        }
+    }
+
+    #[test]
+    fn pad_block_works_2() {
+        let sha1 = SHA1::new();
+        let input: &[u8] = "foobardawg".as_bytes();
+        let output = sha1.pad_block(input);
+        let mut expected = [0u8; 64];
+
+        expected[0] = 'f' as u8;
+        expected[1] = 'o' as u8;
+        expected[2] = 'o' as u8;
+        expected[3] = 'b' as u8;
+        expected[4] = 'a' as u8;
+        expected[5] = 'r' as u8;
+        expected[6] = 'd' as u8;
+        expected[7] = 'a' as u8;
+        expected[8] = 'w' as u8;
+        expected[9] = 'g' as u8;
+        expected[10] = 0x80;
+        expected[63] = 10;
+
+        assert_eq!(output.len(), expected.len());
+
+        for (i, actual) in output.iter().enumerate() {
+            let expected = expected[i];
+            assert_eq!(
+                expected, *actual,
+                "padded output failed at index {}, {} != {} (expected != actual)",
+                i, expected, *actual
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "block passed to pad_block() must be <= 64B but is 100B")]
+    fn pad_block_works_3() {
+        let sha1 = SHA1::new();
+        let input = [0u8; 100];
+        sha1.pad_block(&input);
+    }
+
+    #[test]
+    fn pad_block_works_4() {
         todo!()
     }
 
