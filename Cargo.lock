@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "shasum"
+name = "sha1sum"
 version = "0.1.0"
