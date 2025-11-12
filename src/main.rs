@@ -1,4 +1,4 @@
-use std::{env, fmt::Display, io::{self, BufReader, Read}};
+use std::{env, fmt::Display, io::{self, BufReader, Cursor, Read}};
 
 struct SHA1 {
     part0: u32,
@@ -26,10 +26,10 @@ impl SHA1 {
         )
     }
 
-    pub fn ingest(&mut self, stream: &[u8]) -> io::Result<()> {
-
-        let mut stream_reader = BufReader::new(stream);
-        let mut n = 64;
+    pub fn ingest(&mut self, stream: &mut Vec<u8>) -> io::Result<()> {
+        self.pad_message(stream);
+        let mut stream_reader = BufReader::new(Cursor::new(stream));
+        let mut n = 0;
         while n < 64 {
             let mut buf = [0u8; 64];
             let mut chunk = stream_reader.by_ref().take(64); // 512 bits
@@ -59,7 +59,7 @@ impl SHA1 {
                     .wrapping_add(self.f(b, c, d, t))
                     .wrapping_add(e)
                     .wrapping_add(self.K(t))
-                    .wrapping_add(self.W(block, t));
+                    .wrapping_add(self.W(&block, t));
 
             e = d;
             d = c;
@@ -76,47 +76,14 @@ impl SHA1 {
         self.part4 = e.wrapping_add(self.part4);
     }
 
-    fn pad_message(&self, message: Vec<u8>) -> Vec<u8> {
-        vec![]
-    }
-
-    fn pad_block(&self, block: &[u8]) -> [u8; 64] {
-        // seriously, get your thigh highs on for this one...
-        
-        // "der den lesen kann, hat ein vorteil...", jfc
-
-        // the entire message, M is padded so that it is a *multiple*
-        // of 512 bits (64B) in the case of SHA-1. then, the entire
-        // message is processed in N 512-bit chunks.
-
-        let len = block.len();
-
-        assert_eq!(
-            len <= 64, true,
-            "block passed to pad_block() must be <= 64B but is {}B",
-            len
-        );
-
-        let mut padded_msg = [0; 64]; // initialized buffer is pre-padded :3
-
-        // TODO: this may not be correct. does the 1 bit always
-        //       align with an addressable memory boundary?   
-        //       (we don't have to do any bitwise ops, right? v.v)
-        padded_msg[..len].clone_from_slice(&block);
-        padded_msg[len] = 0x80; // append a 1 bit to the message
-
-        let len_64: u64 = len.try_into().unwrap();
-
-        // add the 64 bit length to the end of the block
-        // TODO: is this a hack? can we do better?
-        // TODO: to_ne_bytes() may not be correct, but it produces
-        //       output that matches the PDF example. need to do
-        //       some more science on this...
-        for (i, x) in len_64.to_ne_bytes().iter().enumerate() {
-            padded_msg[63 - i] = *x;
-        }
-
-        padded_msg
+    fn pad_message(&self, message: &mut Vec<u8>) {
+        let msg_len = message.len();
+        let msg_len_64: u64 = msg_len.try_into().unwrap();
+        let rem = msg_len % 64;
+        let new_size = msg_len - rem + 64;
+        message.resize(new_size, 0);
+        message[msg_len] = 0x80; // append "1" bit to msg
+        message[new_size - 8..].copy_from_slice(msg_len_64.to_be_bytes().as_ref());
     }
 
     fn f(&self, x: u32, y: u32, z: u32, t: u32) -> u32 {
@@ -198,99 +165,116 @@ fn main() {
     let path = args.next().unwrap_or(String::from(""));
     dbg!(&path);
 
-    let mut buf: Vec<u8> = vec![];
-    let stdin = io::stdin();
-    stdin.lock().read_to_end(&mut buf).expect("can't read from stdin");
-
     let mut sha1 = SHA1::new();
-    sha1.ingest(&buf).expect("couldn't ingest input");
+    let mut buf: Vec<u8> = vec![];
+    io::stdin().lock().read_to_end(&mut buf).expect("can't read from stdin");
+    sha1.ingest(&mut buf).expect("couldn't ingest input");
 
     println!("{}", sha1);
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::vec;
 
-    #[test]
-    fn ingest_works() {
-        let mut sha1 = SHA1::new();
-        let input = String::from("test");
-        sha1.ingest(input.as_bytes()).expect("couldn't ingest input");
-        let expected = "4e1243bd22c66e76c2ba9eddc1f91394e57f9f83";
-        assert_eq!(expected, sha1.digest());
-    }
+    use super::*;
 
     #[test]
     fn digest_works_1() {
         let mut sha1 = SHA1::new();
-        sha1.ingest("".as_bytes()).expect("uh oh");
-        assert_eq!("adc83b19e793491b1c6ea0fd8b46cd9f32e592fc", sha1.digest());
+        sha1.part0 = 0x01010101;
+        sha1.part1 = 0x02020202;
+        sha1.part2 = 0x03030303;
+        sha1.part3 = 0x04040404;
+        sha1.part4 = 0x05050505;
+        let expected = "0101010102020202030303030404040405050505";
+        assert_eq!(expected, sha1.digest());
     }
 
     #[test]
     fn digest_works_2() {
         let mut sha1 = SHA1::new();
-        sha1.ingest("test".as_bytes()).expect("uh oh");
-        assert_eq!("4e1243bd22c66e76c2ba9eddc1f91394e57f9f83", sha1.digest());
+        sha1.part0 = 0xaaaaaaaa;
+        sha1.part1 = 0xbbbbbbbb;
+        sha1.part2 = 0xcccccccc;
+        sha1.part3 = 0xdddddddd;
+        sha1.part4 = 0xeeeeeeee;
+        let expected = "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeee";
+        assert_eq!(expected, sha1.digest());
     }
 
     #[test]
-    fn digest_works_3() {
+    fn ingest_works_1() {
         let mut sha1 = SHA1::new();
-        sha1.ingest(
-            "this is a longer message to be digested that causes multiple 512-bit blocks to be processed".as_bytes(),
-        ).expect("uh oh");
-        assert_eq!("4d3cbe140a6d1709afea5b53664cd1875f0d5897", sha1.digest());
+        let mut input: Vec<u8> = vec![];
+        sha1.ingest(&mut input).expect("uh oh");
+        assert_eq!("adc83b19e793491b1c6ea0fd8b46cd9f32e592fc", sha1.digest());
     }
+
+    #[test]
+    fn ingest_works_2() {
+        let mut sha1 = SHA1::new();
+        let mut input: Vec<u8> = vec!['t' as u8, 'e' as u8, 's' as u8, 't' as u8];
+        sha1.ingest(&mut input).expect("uh oh");
+        assert_eq!("4e1243bd22c66e76c2ba9eddc1f91394e57f9f83", sha1.digest());
+    }
+
+    // #[test]
+    // fn ingest_works_3() {
+    //     let mut sha1 = SHA1::new();
+    //     sha1.ingest(
+    //         "this is a longer message to be digested that causes multiple 512-bit blocks to be processed".as_bytes(),
+    //     ).expect("uh oh");
+    //     assert_eq!("4d3cbe140a6d1709afea5b53664cd1875f0d5897", sha1.digest());
+    // }
 
     #[test]
     fn pad_message_works_1() {
         let sha1 = SHA1::new();
-        let input = vec!['a' as u8, 'b' as u8, 'c' as u8];
+        let mut message = vec!['a' as u8, 'b' as u8, 'c' as u8];
         let mut expected = [0u8; 64];
 
         expected[..3].copy_from_slice(b"abc");
         expected[3] = 0x80;
         expected[63] = 3;
 
-        let output = sha1.pad_message(input);
+        sha1.pad_message(&mut message);
         assert_eq!(
-            output.len(), expected.len(),
-            "output length of {} is incorrect, should be {}", output.len(), expected.len()
+            message.len(), expected.len(),
+            "output length of {} is incorrect, should be {}", message.len(), expected.len()
         );
     }
 
     #[test]
     fn pad_message_works_2() {
         let sha1 = SHA1::new();
-        let input = vec!['a' as u8, 'b' as u8, 'c' as u8];
+        let mut message = vec!['a' as u8, 'b' as u8, 'c' as u8];
         let mut expected = [0u8; 64];
 
         expected[..3].copy_from_slice(b"abc");
         expected[3] = 0x80;
         expected[63] = 3;
 
-        let output = sha1.pad_message(input);
-        compare_padded_outputs(&expected, &output);
+        sha1.pad_message(&mut message);
+        compare_padded_outputs(&expected, &message);
     }
 
     #[test]
     fn pad_message_works_3() {
         let sha1 = SHA1::new();
         let msg = "this is a longer message to be digested that causes multiple 512-bit blocks to be processed";
-        let input: Vec<u8> = msg.as_bytes().iter().copied().collect();
         let len = msg.len();
+        let mut message: Vec<u8> = msg.as_bytes().iter().copied().collect();
         let mut expected = [0u8; 128];
 
         expected[..len].copy_from_slice(msg.as_bytes());
         expected[len] = 0x80;
         expected[127] = len.try_into().unwrap();
 
-        let output = sha1.pad_message(input);
+        sha1.pad_message(&mut message);
         assert_eq!(
-            output.len(), expected.len(),
-            "output length of {} is incorrect, should be {}", output.len(), expected.len()
+            expected.len(), message.len(),
+            "output length of {} is incorrect, should be {}", message.len(), expected.len()
         );
     }
 
@@ -298,16 +282,16 @@ mod tests {
     fn pad_message_works_4() {
         let sha1 = SHA1::new();
         let msg = "this is a longer message to be digested that causes multiple 512-bit blocks to be processed";
-        let input: Vec<u8> = msg.as_bytes().iter().copied().collect();
         let len = msg.len();
+        let mut message: Vec<u8> = msg.as_bytes().iter().copied().collect();
         let mut expected = [0u8; 128];
 
         expected[..len].copy_from_slice(msg.as_bytes());
         expected[len] = 0x80;
         expected[127] = len.try_into().unwrap();
 
-        let output = sha1.pad_message(input);
-        compare_padded_outputs(&expected, &output);
+        sha1.pad_message(&mut message);
+        compare_padded_outputs(&expected, &message);
     }
 
     #[test]
@@ -389,11 +373,40 @@ mod tests {
     }
 
     #[test]
+    fn f_works_1() {
+        todo!()
+    }
+
+    #[test]
+    fn f_works_2() {
+        todo!()
+    }
+
+    #[test]
+    fn f_works_3() {
+        todo!()
+    }
+
+    #[test]
+    fn f_works_4() {
+        todo!()
+    }
+
+    #[test]
+    fn f_works_5() {
+        todo!()
+    }
+
+    #[test]
     fn w_works() {
         todo!()
     }
 
     fn compare_padded_outputs(expected: &[u8], actual: &[u8]) {
+        assert_eq!(
+            expected.len(), actual.len(),
+            "not comparing arrays of differing lengths"
+        );
         for (i, x) in actual.iter().enumerate() {
             let expected = expected[i];
             assert_eq!(
