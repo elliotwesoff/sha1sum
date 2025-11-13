@@ -1,4 +1,4 @@
-use std::{env, fmt::Display, io::{self, BufReader, Cursor, Read}, panic};
+use std::{env, fmt::Display, io::{self, BufReader, Cursor, Read}};
 
 struct SHA1 {
     part0: u32,
@@ -80,12 +80,13 @@ impl SHA1 {
     fn pad_message(&self, message: &mut Vec<u8>) {
         let msg_len = message.len();
         let msg_len_64: u64 = msg_len.try_into().unwrap();
-        let msg_len_bytes = msg_len_64.to_be_bytes();
+        let msg_len_bits = msg_len_64 * 8;
+        let msg_len_bits_bytes = msg_len_bits.to_be_bytes();
         let rem = msg_len % 64;
         let new_size = msg_len - rem + 64; // smooth brain solution v.v
         message.resize(new_size, 0);
         message[msg_len] = 0x80; // append "1" bit to msg
-        message[new_size - 8..].copy_from_slice(&msg_len_bytes);
+        message[new_size - 8..].copy_from_slice(&msg_len_bits_bytes);
     }
 
     fn prepare_message_schedule(&self, padded_msg: &[u8]) -> [u32; 80] {
@@ -207,7 +208,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
+    use std::{fmt::Debug, vec};
 
     use super::*;
 
@@ -264,16 +265,13 @@ mod tests {
     fn pad_message_works_1() {
         let sha1 = SHA1::new();
         let mut message = vec!['a' as u8, 'b' as u8, 'c' as u8];
-        let mut expected = [0u8; 64];
-
-        expected[..3].copy_from_slice(b"abc");
-        expected[3] = 0x80;
-        expected[63] = 3;
+        let expected = 64;
 
         sha1.pad_message(&mut message);
         assert_eq!(
-            message.len(), expected.len(),
-            "output length of {} is incorrect, should be {}", message.len(), expected.len()
+            expected, message.len(),
+            "output length of {} is incorrect, should be {}",
+            message.len(), expected
         );
     }
 
@@ -285,28 +283,23 @@ mod tests {
 
         expected[..3].copy_from_slice(b"abc");
         expected[3] = 0x80;
-        expected[63] = 3;
+        expected[63] = 0x18;
 
         sha1.pad_message(&mut message);
-        compare_padded_outputs(&expected, &message);
+        compare_arrays(&expected, &message);
     }
 
     #[test]
     fn pad_message_works_3() {
         let sha1 = SHA1::new();
         let msg = "this is a longer message to be digested that causes multiple 512-bit blocks to be processed";
-        let len = msg.len();
         let mut message: Vec<u8> = msg.as_bytes().iter().copied().collect();
-        let mut expected = [0u8; 128];
-
-        expected[..len].copy_from_slice(msg.as_bytes());
-        expected[len] = 0x80;
-        expected[127] = len.try_into().unwrap();
-
+        let expected = 128;
         sha1.pad_message(&mut message);
         assert_eq!(
-            expected.len(), message.len(),
-            "output length of {} is incorrect, should be {}", message.len(), expected.len()
+            expected, message.len(),
+            "output length of {} is incorrect, should be {}",
+            message.len(), expected
         );
     }
 
@@ -320,22 +313,58 @@ mod tests {
 
         expected[..len].copy_from_slice(msg.as_bytes());
         expected[len] = 0x80;
-        expected[127] = len.try_into().unwrap();
+        expected[126] = 0x02;
+        expected[127] = 0xd8;
 
         sha1.pad_message(&mut message);
-        compare_padded_outputs(&expected, &message);
+        compare_arrays(&expected, &message);
     }
 
     #[test]
-    fn prepare_message_schedule_works() {
+    fn prepare_message_schedule_works_1() {
         let sha1 = SHA1::new();
         let mut padded_msg = [0u8; 64];
         padded_msg[..3].copy_from_slice(b"abc");
         padded_msg[3] = 0x80;
-        padded_msg[63] = 24;
-        let output = sha1.prepare_message_schedule(&padded_msg);
-        dbg!(output);
-        assert_eq!(true, false);
+        padded_msg[63] = 0x18;
+        let actual = sha1.prepare_message_schedule(&padded_msg);
+        assert_eq!(actual.len(), 80);
+    }
+
+    #[test]
+    fn prepare_message_schedule_works_2() {
+        let sha1 = SHA1::new();
+
+        let mut padded_msg = [0u8; 64];
+        padded_msg[..3].copy_from_slice(b"abc");
+        padded_msg[3] = 0x80;
+        padded_msg[63] = 0x18;
+
+        let expected: [u32; 80] = [
+            0x61626380, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000018,
+            0x80000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000300,
+            0x40000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00006000,
+            0x20000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x000C0000,
+            0x10000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00180000, 0x08000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00300000, 0x04000000, 0x00000000,
+        ];
+
+        let actual = sha1.prepare_message_schedule(&padded_msg);
+        compare_arrays(expected.as_ref(), actual.as_ref());
     }
 
     #[test]
@@ -447,17 +476,25 @@ mod tests {
         sha1.f(1, 2, 3, 80);
     }
 
-    fn compare_padded_outputs(expected: &[u8], actual: &[u8]) {
+    trait Unsigned {}
+    impl Unsigned for u8 {}
+    impl Unsigned for u32 {}
+
+    fn compare_arrays<T>(expected: &[T], actual: &[T])
+    where 
+        T: Unsigned + PartialEq + Debug + Display + Clone
+    {
         assert_eq!(
             expected.len(), actual.len(),
-            "not comparing arrays of differing lengths"
+            "expected and actual arrays differ in length; {} != {}",
+            expected.len(), actual.len(),
         );
         for (i, x) in actual.iter().enumerate() {
-            let expected = expected[i];
+            let expected_val = &expected[i];
             assert_eq!(
-                expected, *x,
-                "padded output is incorrect at index {}/{} ({} != {}; expected != actual)",
-                i, actual.len() - 1, expected, *x
+                *expected_val, *x,
+                "actual array is incorrect at index {} ({} != {}; expected != actual)",
+                i, expected_val, *x
             );
         }
     }
