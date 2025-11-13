@@ -1,4 +1,4 @@
-use std::{env, fmt::Display, io::{self, BufReader, Cursor, Read}};
+use std::{env, fmt::Display, io::{self, BufReader, Cursor, Read}, panic};
 
 struct SHA1 {
     part0: u32,
@@ -29,7 +29,7 @@ impl SHA1 {
     pub fn ingest(&mut self, stream: &mut Vec<u8>) -> io::Result<()> {
         self.pad_message(stream);
         let mut stream_reader = BufReader::new(Cursor::new(stream));
-        let mut n = 0;
+        let mut n: usize = 0;
         while n < 64 {
             let mut buf = [0u8; 64];
             let mut chunk = stream_reader.by_ref().take(64); // 512 bits
@@ -40,7 +40,8 @@ impl SHA1 {
     }
 
     fn ingest_block(&mut self, block: &[u8]) {
-        // 1. Prepare the message schedule (calculated dynamically)
+        // 1. Prepare the message schedule (W)
+        let msg_schedule = self.prepare_message_schedule(block);
 
         // 2. Initialize the first five working variables (inc. temp var T)
         let mut tmp: u32;
@@ -56,10 +57,10 @@ impl SHA1 {
             // ints works the same as addition mod 2^32. if we get issues,
             // look into this first.
             tmp = self.rotl_u32(a, 5)
-                    .wrapping_add(self.f(b, c, d, t))
+                    .wrapping_add(self.f(b, c, d, t as u32))
                     .wrapping_add(e)
-                    .wrapping_add(self.K(t))
-                    .wrapping_add(self.W(&block, t));
+                    .wrapping_add(self.K(t as u32))
+                    .wrapping_add(msg_schedule[t]);
 
             e = d;
             d = c;
@@ -79,11 +80,41 @@ impl SHA1 {
     fn pad_message(&self, message: &mut Vec<u8>) {
         let msg_len = message.len();
         let msg_len_64: u64 = msg_len.try_into().unwrap();
+        let msg_len_bytes = msg_len_64.to_be_bytes();
         let rem = msg_len % 64;
-        let new_size = msg_len - rem + 64;
+        let new_size = msg_len - rem + 64; // smooth brain solution v.v
         message.resize(new_size, 0);
         message[msg_len] = 0x80; // append "1" bit to msg
-        message[new_size - 8..].copy_from_slice(msg_len_64.to_be_bytes().as_ref());
+        message[new_size - 8..].copy_from_slice(&msg_len_bytes);
+    }
+
+    fn prepare_message_schedule(&self, padded_msg: &[u8]) -> [u32; 80] {
+        let mut buf_reader = BufReader::new(Cursor::new(padded_msg));
+        let mut schedule = [0u32; 80];
+
+        for i in 0..16 {
+            let mut buf = [0u8; 4];
+            let mut chunk = buf_reader.by_ref().take(4);
+            let n = chunk.read(&mut buf).unwrap();
+
+            if n != 4 {
+                panic!(
+                    "message schedule needs a long enough padded message! {} < 80",
+                    padded_msg.len()
+                );
+            }
+
+            schedule[i] = u32::from_be_bytes(buf);
+        }
+
+        for i in 16..80 {
+            schedule[i] = self.rotl_u32(
+                schedule[i - 3] ^ schedule[i - 8] ^ schedule[i - 14] ^ schedule[i - 16],
+                1
+            );
+        }
+
+        schedule
     }
 
     fn f(&self, x: u32, y: u32, z: u32, t: u32) -> u32 {
@@ -129,7 +160,8 @@ impl SHA1 {
     }
 
     #[allow(non_snake_case)]
-    fn W(&self, block: &[u8], t: u32) -> u32 {
+    #[deprecated]
+    fn _W(&self, message_schedule: &[u8], t: u32) -> u32 {
         match t {
             0..16 => {
                 // "the j'th word of the i'th message block."
@@ -137,14 +169,14 @@ impl SHA1 {
                 // so we just take the j'th word (t).
                 let i = (t * 4) as usize;
                 let j = (i + 4) as usize;
-                let r = &block[i..j];
+                let r = &message_schedule[i..j];
                 u32::from_be_bytes(r.try_into().unwrap())
             }, 
             16..80 => {
-                let w1 = self.W(block, t - 3);
-                let w2 = self.W(block, t - 8);
-                let w3 = self.W(block, t - 14);
-                let w4 = self.W(block, t - 16);
+                let w1 = self._W(message_schedule, t - 3);
+                let w2 = self._W(message_schedule, t - 8);
+                let w3 = self._W(message_schedule, t - 14);
+                let w4 = self._W(message_schedule, t - 16);
                 self.rotl_u32(w1 ^ w2 ^ w3 ^ w4, 1)
             },
             _ => panic!("invalid t provided to W(): {}", t)
@@ -295,6 +327,18 @@ mod tests {
     }
 
     #[test]
+    fn prepare_message_schedule_works() {
+        let sha1 = SHA1::new();
+        let mut padded_msg = [0u8; 64];
+        padded_msg[..3].copy_from_slice(b"abc");
+        padded_msg[3] = 0x80;
+        padded_msg[63] = 24;
+        let output = sha1.prepare_message_schedule(&padded_msg);
+        dbg!(output);
+        assert_eq!(true, false);
+    }
+
+    #[test]
     fn rotl_u32_works_1() {
         let sha1 = SHA1::new();
         let x = 0xff000000;
@@ -374,32 +418,33 @@ mod tests {
 
     #[test]
     fn f_works_1() {
-        todo!()
+        let sha1 = SHA1::new();
+        assert_eq!(sha1.ch(1, 2, 3), sha1.f(1, 2, 3, 0));
     }
 
     #[test]
     fn f_works_2() {
-        todo!()
+        let sha1 = SHA1::new();
+        assert_eq!(sha1.parity(1, 2, 3), sha1.f(1, 2, 3, 20));
     }
 
     #[test]
     fn f_works_3() {
-        todo!()
+        let sha1 = SHA1::new();
+        assert_eq!(sha1.maj(1, 2, 3), sha1.f(1, 2, 3, 40));
     }
 
     #[test]
     fn f_works_4() {
-        todo!()
+        let sha1 = SHA1::new();
+        assert_eq!(sha1.parity(1, 2, 3), sha1.f(1, 2, 3, 60));
     }
 
     #[test]
+    #[should_panic]
     fn f_works_5() {
-        todo!()
-    }
-
-    #[test]
-    fn w_works() {
-        todo!()
+        let sha1 = SHA1::new();
+        sha1.f(1, 2, 3, 80);
     }
 
     fn compare_padded_outputs(expected: &[u8], actual: &[u8]) {
