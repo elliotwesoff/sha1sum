@@ -38,15 +38,15 @@ impl SHA1 {
                 break;
             }
 
-            self.ingest_block(&buf);
+            self.ingest_chunk(buf);
         }
 
         Ok(())
     }
 
-    fn ingest_block(&mut self, block: &[u8]) {
+    fn ingest_chunk(&mut self, chunk: [u8; 64]) {
         // 1. Prepare the message schedule (W)
-        let msg_schedule = self.prepare_message_schedule(block);
+        let msg_schedule = self.prepare_message_schedule(chunk);
 
         // 2. Initialize the first five working variables (inc. temp var T)
         let mut tmp: u32;
@@ -58,10 +58,12 @@ impl SHA1 {
 
         // 3. Process the eighty schedule messages
         for t in 0..80 {
+            let t = t as usize;
+
             tmp = a.rotate_left(5)
-                   .wrapping_add(self.f(b, c, d, t as u32))
+                   .wrapping_add(self.f(b, c, d, t))
                    .wrapping_add(e)
-                   .wrapping_add(self.K(t as u32))
+                   .wrapping_add(self.K(t))
                    .wrapping_add(msg_schedule[t]);
 
             e = d;
@@ -90,9 +92,9 @@ impl SHA1 {
         message[new_size - 8..].copy_from_slice(&msg_len_64_bytes);
     }
 
-    fn prepare_message_schedule(&self, padded_msg: &[u8]) -> [u32; 80] {
-        let mut buf_reader = BufReader::new(Cursor::new(padded_msg));
+    fn prepare_message_schedule(&self, chunk: [u8; 64]) -> [u32; 80] {
         let mut schedule = [0u32; 80];
+        let mut buf_reader = BufReader::new(Cursor::new(chunk));
 
         for i in 0..16 {
             let mut buf = [0u8; 4];
@@ -109,13 +111,13 @@ impl SHA1 {
         schedule
     }
 
-    fn f(&self, x: u32, y: u32, z: u32, t: u32) -> u32 {
+    fn f(&self, x: u32, y: u32, z: u32, t: usize) -> u32 {
         match t {
             0..20 => self.ch(x, y, z),
             20..40 => self.parity(x, y, z),
             40..60 => self.maj(x, y, z),
             60..80 => self.parity(x, y, z),
-            _ => panic!("invalid t parameter for f(): {}", t)
+            _ => panic!("invalid t parameter provieded to f(): {}", t)
         }
     }
 
@@ -135,13 +137,13 @@ impl SHA1 {
     }
 
     #[allow(non_snake_case)]
-    fn K(&self, t: u32) -> u32 {
+    fn K(&self, t: usize) -> u32 {
         match t {
             0..20 => 0x5a827999,
             20..40 => 0x6ed9eba1,
             40..60 => 0x8f1bbcdc,
             60..80 => 0xca62c1d6,
-            _ => panic!("invalid t provided to K(): {}", t)
+            _ => panic!("invalid t parameter provided to K(): {}", t)
         }
     }
 }
@@ -160,7 +162,8 @@ fn main() {
 
     let mut sha1 = SHA1::new();
     let mut buf: Vec<u8> = vec![];
-    io::stdin().lock().read_to_end(&mut buf).expect("can't read from stdin");
+    let mut stdin_guard = io::stdin().lock();
+    stdin_guard.read_to_end(&mut buf).expect("can't read from stdin");
     sha1.ingest(&mut buf).expect("couldn't ingest input");
 
     println!("{}", sha1);
@@ -285,7 +288,7 @@ mod tests {
         padded_msg[..3].copy_from_slice(b"abc");
         padded_msg[3] = 0x80;
         padded_msg[63] = 0x18;
-        let actual = sha1.prepare_message_schedule(&padded_msg);
+        let actual = sha1.prepare_message_schedule(padded_msg);
         assert_eq!(actual.len(), 80);
     }
 
@@ -321,7 +324,7 @@ mod tests {
             0xE6E60B69, 0x00F60A00, 0x5795EF4F, 0x822E0879,
         ];
 
-        let actual = sha1.prepare_message_schedule(&padded_msg);
+        let actual = sha1.prepare_message_schedule(padded_msg);
         compare_arrays(expected.as_ref(), actual.as_ref());
     }
 
