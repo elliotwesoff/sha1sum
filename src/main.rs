@@ -1,28 +1,28 @@
 use std::{fmt::Display, io::{self, BufReader, Cursor, Read}};
 
 struct SHA1 {
-    part0: u32,
-    part1: u32,
-    part2: u32,
-    part3: u32,
-    part4: u32,
+    h0: u32,
+    h1: u32,
+    h2: u32,
+    h3: u32,
+    h4: u32,
 }
 
 impl SHA1 {
     pub fn new() -> Self {
         SHA1 {
-            part0: 0x67452301,
-            part1: 0xefcdab89,
-            part2: 0x98badcfe,
-            part3: 0x10325476,
-            part4: 0xc3d2e1f0
+            h0: 0x67452301,
+            h1: 0xefcdab89,
+            h2: 0x98badcfe,
+            h3: 0x10325476,
+            h4: 0xc3d2e1f0
         }
     }
 
     pub fn digest(&self) -> String {
         format!(
             "{:08x}{:08x}{:08x}{:08x}{:08x}",
-            self.part0, self.part1, self.part2, self.part3, self.part4
+            self.h0, self.h1, self.h2, self.h3, self.h4
         )
     }
 
@@ -40,6 +40,7 @@ impl SHA1 {
 
             self.ingest_block(&buf);
         }
+
         Ok(())
     }
 
@@ -49,11 +50,11 @@ impl SHA1 {
 
         // 2. Initialize the first five working variables (inc. temp var T)
         let mut tmp: u32;
-        let mut a = self.part0;
-        let mut b = self.part1;
-        let mut c = self.part2;
-        let mut d = self.part3;
-        let mut e = self.part4;
+        let mut a = self.h0;
+        let mut b = self.h1;
+        let mut c = self.h2;
+        let mut d = self.h3;
+        let mut e = self.h4;
 
         // 3. Process the eighty schedule messages
         for t in 0..80 {
@@ -71,11 +72,11 @@ impl SHA1 {
         }
 
         // 4. Compute the ith intermediate hash value, H^(i)
-        self.part0 = a.wrapping_add(self.part0);
-        self.part1 = b.wrapping_add(self.part1);
-        self.part2 = c.wrapping_add(self.part2);
-        self.part3 = d.wrapping_add(self.part3);
-        self.part4 = e.wrapping_add(self.part4);
+        self.h0 = a.wrapping_add(self.h0);
+        self.h1 = b.wrapping_add(self.h1);
+        self.h2 = c.wrapping_add(self.h2);
+        self.h3 = d.wrapping_add(self.h3);
+        self.h4 = e.wrapping_add(self.h4);
     }
 
     fn pad_message(&self, message: &mut Vec<u8>) {
@@ -173,11 +174,11 @@ mod tests {
     #[test]
     fn digest_works_1() {
         let mut sha1 = SHA1::new();
-        sha1.part0 = 0x01010101;
-        sha1.part1 = 0x02020202;
-        sha1.part2 = 0x03030303;
-        sha1.part3 = 0x04040404;
-        sha1.part4 = 0x05050505;
+        sha1.h0 = 0x01010101;
+        sha1.h1 = 0x02020202;
+        sha1.h2 = 0x03030303;
+        sha1.h3 = 0x04040404;
+        sha1.h4 = 0x05050505;
         let expected = "0101010102020202030303030404040405050505";
         assert_eq!(expected, sha1.digest());
     }
@@ -185,11 +186,11 @@ mod tests {
     #[test]
     fn digest_works_2() {
         let mut sha1 = SHA1::new();
-        sha1.part0 = 0xaaaaaaaa;
-        sha1.part1 = 0xbbbbbbbb;
-        sha1.part2 = 0xcccccccc;
-        sha1.part3 = 0xdddddddd;
-        sha1.part4 = 0xeeeeeeee;
+        sha1.h0 = 0xaaaaaaaa;
+        sha1.h1 = 0xbbbbbbbb;
+        sha1.h2 = 0xcccccccc;
+        sha1.h3 = 0xdddddddd;
+        sha1.h4 = 0xeeeeeeee;
         let expected = "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeee";
         assert_eq!(expected, sha1.digest());
     }
