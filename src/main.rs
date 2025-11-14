@@ -100,7 +100,7 @@ impl SHA1 {
 
             if n != 4 {
                 panic!(
-                    "message schedule needs a long enough padded message! {} < 80",
+                    "message schedule needs a long enough padded message! {} < 64",
                     padded_msg.len()
                 );
             }
@@ -159,30 +159,6 @@ impl SHA1 {
             _ => panic!("invalid t provided to K(): {}", t)
         }
     }
-
-    #[allow(non_snake_case)]
-    #[deprecated]
-    fn _W(&self, message_schedule: &[u8], t: u32) -> u32 {
-        match t {
-            0..16 => {
-                // "the j'th word of the i'th message block."
-                // block is already the i'th message block,
-                // so we just take the j'th word (t).
-                let i = (t * 4) as usize;
-                let j = (i + 4) as usize;
-                let r = &message_schedule[i..j];
-                u32::from_be_bytes(r.try_into().unwrap())
-            }, 
-            16..80 => {
-                let w1 = self._W(message_schedule, t - 3);
-                let w2 = self._W(message_schedule, t - 8);
-                let w3 = self._W(message_schedule, t - 14);
-                let w4 = self._W(message_schedule, t - 16);
-                self.rotl_u32(w1 ^ w2 ^ w3 ^ w4, 1)
-            },
-            _ => panic!("invalid t provided to W(): {}", t)
-        }
-    }
 }
 
 impl Display for SHA1 {
@@ -209,7 +185,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use std::{fmt::Debug, vec};
-
     use super::*;
 
     #[test]
@@ -345,22 +320,22 @@ mod tests {
             0x00000000, 0x00000000, 0x00000000, 0x00000000,
             0x00000000, 0x00000000, 0x00000000, 0x00000000,
             0x00000000, 0x00000000, 0x00000000, 0x00000018,
-            0x80000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00000000, 0x00000000, 0x00000300,
-            0x40000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00000000, 0x00000000, 0x00006000,
-            0x20000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00000000, 0x00000000, 0x000C0000,
-            0x10000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00000000, 0x00180000, 0x08000000,
-            0x00000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00000000, 0x00000000, 0x00000000,
-            0x00000000, 0x00300000, 0x04000000, 0x00000000,
+            0xC2C4C700, 0x00000000, 0x00000030, 0x85898E01,
+            0x00000000, 0x00000060, 0x0B131C03, 0x00000030,
+            0x85898EC1, 0x16263806, 0x00000000, 0x00000180,
+            0x2C4C700C, 0x000000F0, 0x93AFB507, 0x5898E048,
+            0x8E9A9202, 0x00000600, 0xB131C0F0, 0x16263BC6,
+            0x4EBED41E, 0x626380A1, 0x16263806, 0x000018C0,
+            0xD2E138C4, 0x00000F00, 0x3AFB5079, 0x898E04E5,
+            0xE2BA3C2B, 0x000060C0, 0x053A37CD, 0x74458547,
+            0xDA9415ED, 0x26380A16, 0x626383A1, 0x4EBF54DE,
+            0x3835B44B, 0x0000F600, 0x1E84C7A3, 0x98E04D98,
+            0x651D16A0, 0x62658CA1, 0x458544D6, 0x44584CB7,
+            0x7BA06619, 0x6380AEA2, 0x0AE55269, 0x627B49A1,
+            0x7CD45C9D, 0x000F0000, 0xFB50753A, 0xEC6765E8,
+            0xBA3C2BE2, 0x0060C000, 0x3A37CD05, 0x458546F4,
+            0xB8599DD6, 0x380A1A26, 0x01E02203, 0xE7CC3456,
+            0xE6E60B69, 0x00F60A00, 0x5795EF4F, 0x822E0879,
         ];
 
         let actual = sha1.prepare_message_schedule(&padded_msg);
