@@ -1,4 +1,4 @@
-use std::{env, fmt::Display, io::{self, BufReader, Cursor, Read}};
+use std::{fmt::Display, io::{self, BufReader, Cursor, Read}};
 
 struct SHA1 {
     part0: u32,
@@ -29,11 +29,15 @@ impl SHA1 {
     pub fn ingest(&mut self, stream: &mut Vec<u8>) -> io::Result<()> {
         self.pad_message(stream);
         let mut stream_reader = BufReader::new(Cursor::new(stream));
-        let mut n: usize = 0;
-        while n < 64 {
+
+        loop {
             let mut buf = [0u8; 64];
             let mut chunk = stream_reader.by_ref().take(64); // 512 bits
-            n = chunk.read(&mut buf)?;
+
+            if chunk.read(&mut buf)? != 64 {
+                break;
+            }
+
             self.ingest_block(&buf);
         }
         Ok(())
@@ -53,9 +57,6 @@ impl SHA1 {
 
         // 3. Process the eighty schedule messages
         for t in 0..80 {
-            // chatgpt claims that the wrap around for addition of 32 bit
-            // ints works the same as addition mod 2^32. if we get issues,
-            // look into this first.
             tmp = self.rotl_u32(a, 5)
                     .wrapping_add(self.f(b, c, d, t as u32))
                     .wrapping_add(e)
@@ -169,10 +170,9 @@ impl Display for SHA1 {
 
 fn main() {
     // TODO: panic if a file *and* data on stdin are both given
-
-    let mut args = env::args().skip(1); // skip program name
-    let path = args.next().unwrap_or(String::from(""));
-    dbg!(&path);
+    // let mut args = env::args().skip(1); // skip program name
+    // let path = args.next().unwrap_or(String::from(""));
+    // dbg!(&path);
 
     let mut sha1 = SHA1::new();
     let mut buf: Vec<u8> = vec![];
@@ -216,7 +216,7 @@ mod tests {
         let mut sha1 = SHA1::new();
         let mut input: Vec<u8> = vec![];
         sha1.ingest(&mut input).expect("uh oh");
-        assert_eq!("adc83b19e793491b1c6ea0fd8b46cd9f32e592fc", sha1.digest());
+        assert_eq!("da39a3ee5e6b4b0d3255bfef95601890afd80709", sha1.digest());
     }
 
     #[test]
@@ -224,17 +224,16 @@ mod tests {
         let mut sha1 = SHA1::new();
         let mut input: Vec<u8> = vec!['t' as u8, 'e' as u8, 's' as u8, 't' as u8];
         sha1.ingest(&mut input).expect("uh oh");
-        assert_eq!("4e1243bd22c66e76c2ba9eddc1f91394e57f9f83", sha1.digest());
+        assert_eq!("a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", sha1.digest());
     }
 
-    // #[test]
-    // fn ingest_works_3() {
-    //     let mut sha1 = SHA1::new();
-    //     sha1.ingest(
-    //         "this is a longer message to be digested that causes multiple 512-bit blocks to be processed".as_bytes(),
-    //     ).expect("uh oh");
-    //     assert_eq!("4d3cbe140a6d1709afea5b53664cd1875f0d5897", sha1.digest());
-    // }
+    #[test]
+    fn ingest_works_3() {
+        let mut sha1 = SHA1::new();
+        let mut msg = b"this is a longer message to be digested that causes multiple 512-bit blocks to be processed".to_vec();
+        sha1.ingest(&mut msg).expect("uh oh");
+        assert_eq!("59638ef75030bf4632b9b58d2eb41e20fa2b1f61", sha1.digest());
+    }
 
     #[test]
     fn pad_message_works_1() {
