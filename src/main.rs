@@ -32,7 +32,7 @@ impl SHA1 {
 
         loop {
             let mut buf = [0u8; 64];
-            let mut chunk = stream_reader.by_ref().take(64); // 512 bits
+            let mut chunk = stream_reader.by_ref().take(64);
 
             if chunk.read(&mut buf)? != 64 {
                 break;
@@ -57,15 +57,15 @@ impl SHA1 {
 
         // 3. Process the eighty schedule messages
         for t in 0..80 {
-            tmp = self.rotl_u32(a, 5)
-                    .wrapping_add(self.f(b, c, d, t as u32))
-                    .wrapping_add(e)
-                    .wrapping_add(self.K(t as u32))
-                    .wrapping_add(msg_schedule[t]);
+            tmp = a.rotate_left(5)
+                   .wrapping_add(self.f(b, c, d, t as u32))
+                   .wrapping_add(e)
+                   .wrapping_add(self.K(t as u32))
+                   .wrapping_add(msg_schedule[t]);
 
             e = d;
             d = c;
-            c = self.rotl_u32(b, 30);
+            c = b.rotate_left(30);
             b = a;
             a = tmp;
         }
@@ -80,14 +80,13 @@ impl SHA1 {
 
     fn pad_message(&self, message: &mut Vec<u8>) {
         let msg_len = message.len();
-        let msg_len_64: u64 = msg_len.try_into().unwrap();
-        let msg_len_bits = msg_len_64 * 8;
-        let msg_len_bits_bytes = msg_len_bits.to_be_bytes();
         let rem = msg_len % 64;
         let new_size = msg_len - rem + 64; // smooth brain solution v.v
+        let msg_len_64: u64 = msg_len.try_into().unwrap();
+        let msg_len_64_bytes = (msg_len_64 * 8).to_be_bytes(); // len in bits, split into 8 bytes
         message.resize(new_size, 0);
-        message[msg_len] = 0x80; // append "1" bit to msg
-        message[new_size - 8..].copy_from_slice(&msg_len_bits_bytes);
+        message[msg_len] = 0x80;
+        message[new_size - 8..].copy_from_slice(&msg_len_64_bytes);
     }
 
     fn prepare_message_schedule(&self, padded_msg: &[u8]) -> [u32; 80] {
@@ -97,23 +96,13 @@ impl SHA1 {
         for i in 0..16 {
             let mut buf = [0u8; 4];
             let mut chunk = buf_reader.by_ref().take(4);
-            let n = chunk.read(&mut buf).unwrap();
-
-            if n != 4 {
-                panic!(
-                    "message schedule needs a long enough padded message! {} < 64",
-                    padded_msg.len()
-                );
-            }
-
+            chunk.read(&mut buf).unwrap();
             schedule[i] = u32::from_be_bytes(buf);
         }
 
         for i in 16..80 {
-            schedule[i] = self.rotl_u32(
-                schedule[i - 3] ^ schedule[i - 8] ^ schedule[i - 14] ^ schedule[i - 16],
-                1
-            );
+            let value = schedule[i - 3] ^ schedule[i - 8] ^ schedule[i - 14] ^ schedule[i - 16];
+            schedule[i] = value.rotate_left(1);
         }
 
         schedule
@@ -127,12 +116,6 @@ impl SHA1 {
             60..80 => self.parity(x, y, z),
             _ => panic!("invalid t parameter for f(): {}", t)
         }
-    }
-
-    #[inline]
-    fn rotl_u32(&self, v: u32, n: u8) -> u32 {
-        // TODO: is there something equivalent in std?
-        (v << n) | (v >> (32 - n))
     }
 
     #[inline]
@@ -339,36 +322,6 @@ mod tests {
 
         let actual = sha1.prepare_message_schedule(&padded_msg);
         compare_arrays(expected.as_ref(), actual.as_ref());
-    }
-
-    #[test]
-    fn rotl_u32_works_1() {
-        let sha1 = SHA1::new();
-        let x = 0xff000000;
-        let n = 8;
-        let expected = 0x000000ff;
-        let actual = sha1.rotl_u32(x, n);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn rotl_u32_works_2() {
-        let sha1 = SHA1::new();
-        let x = 0x00050500;
-        let n = 16;
-        let expected = 0x05000005;
-        let actual = sha1.rotl_u32(x, n);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn rotl_u32_works_3() {
-        let sha1 = SHA1::new();
-        let x = 0x80000000;
-        let n = 1;
-        let expected = 0x00000001;
-        let actual = sha1.rotl_u32(x, n);
-        assert_eq!(expected, actual);
     }
 
     #[test]
