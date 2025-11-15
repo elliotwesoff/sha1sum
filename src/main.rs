@@ -284,10 +284,7 @@ mod tests {
     #[test]
     fn prepare_message_schedule_works_1() {
         let sha1 = SHA1::new();
-        let mut padded_msg = [0u8; 64];
-        padded_msg[..3].copy_from_slice(b"abc");
-        padded_msg[3] = 0x80;
-        padded_msg[63] = 0x18;
+        let padded_msg = [0u8; 64];
         let actual = sha1.prepare_message_schedule(padded_msg);
         assert_eq!(actual.len(), 80);
     }
