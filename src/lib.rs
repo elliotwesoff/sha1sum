@@ -19,14 +19,6 @@ impl SHA1 {
         }
     }
 
-    pub fn set_error(&mut self) {
-        self.h0 = 0;
-        self.h1 = 0;
-        self.h2 = 0;
-        self.h3 = 0;
-        self.h4 = 0;
-    }
-
     pub fn digest(&self) -> String {
         format!(
             "{:08x}{:08x}{:08x}{:08x}{:08x}",

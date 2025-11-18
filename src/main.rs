@@ -1,12 +1,11 @@
-use std::{error::Error, io::{self, Read}, process};
+use std::{error::Error, io::{self, Read}, process, fs};
 
 use sha1sum::SHA1;
 
 const BUFSIZE: usize = 8192;
 
 struct Config {
-    file_path: String,
-    stdin_provided: bool
+    file_path: Option<String>,
 }
 
 impl Config {
@@ -15,61 +14,47 @@ impl Config {
     ) -> Result<Config, &'static str> {
         args.next();
 
-        let file_path = match args.next() {
-            Some(arg) => arg,
-            None => return Err("Didn't get a file path"),
-        };
+        let file_path = args.next();
 
-        let stdin_provided = true;
-
-        Ok(Config { file_path, stdin_provided })
+        Ok(Config { file_path })
     }
 }
 
-fn read_chunk<T>(mut chunk: T) -> Result<([u8; BUFSIZE], usize), Box<dyn Error>>
+fn read_chunk<T>(stream: T) -> Result<Vec<u8>, Box<dyn Error>>
 where
     T: Read
 {
-    let mut buf = [0u8; BUFSIZE];
-    let bytes_read = chunk.read(&mut buf)?;
-    Ok((buf, bytes_read))
+    let mut v: Vec<u8> = vec![0u8; BUFSIZE];
+    let mut chunk = stream.take(BUFSIZE.try_into().unwrap());
+    let bytes_read = chunk.read(&mut v)?;
+    v.truncate(bytes_read);
+    Ok(v)
 }
 
-fn run(config: Config) {
+fn get_input_reader(config: Config) -> Result<Box<dyn Read>, io::Error> {
+    match config.file_path {
+        Some(file_path) => {
+            let file_handle = fs::File::open(file_path)?;
+            Ok(Box::new(file_handle))
+        },
+        None => Ok(Box::new(io::stdin().lock()))
+    }
+}
+
+fn run(config: Config) -> Result<String, Box<dyn Error>> {
     let mut sha1 = SHA1::new();
-    let mut n = BUFSIZE;
-    let mut stdin_guard = io::stdin().lock();
-    let mut errors: Vec<String> = vec![];
+    let mut reader: Box<dyn Read>;
+    let mut last = false;
 
-    while n == BUFSIZE {
-        let chunk = stdin_guard.by_ref().take(BUFSIZE.try_into().unwrap());
+    reader = get_input_reader(config)?;
 
-        let (buf, bytes_read) = read_chunk(chunk).unwrap_or_else(|err| {
-            sha1.set_error();
-            errors.push(format!("read error: {}", err));
-            ([0u8; BUFSIZE], 0)
-        });
-
-        if bytes_read == 0 {
-            break;
-        }
-
-        n = bytes_read;
-
-        sha1.ingest(buf.to_vec(), false).unwrap_or_else(|err| {
-            errors.push(format!("processing error: {}", err));
-        });
+    while !last {
+        let buf = read_chunk(reader.by_ref())?;
+        last = buf.len() != BUFSIZE;
+        sha1.ingest(buf, last)?;
     }
 
-
-    if errors.len() == 0 {
-        println!("{}", sha1.digest());
-    } else {
-        for err in errors.into_iter() {
-            eprintln!("{}", err);
-        }
-        process::exit(1);
-    }
+    Ok(sha1.digest())
 }
 
 fn main() {
@@ -78,5 +63,8 @@ fn main() {
         process::exit(1);
     });
 
-    run(config)
+    match run(config) {
+        Ok(hash) => println!("{hash}"),
+        Err(e) => eprintln!("{e}")
+    }
 }
