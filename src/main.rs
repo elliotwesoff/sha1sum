@@ -1,4 +1,4 @@
-use std::{error::Error, io::{self, Read}, process, fs};
+use std::{error::Error, fs, io::{self, BufReader, Read}, process};
 
 use sha1sum::SHA1;
 
@@ -20,38 +20,51 @@ impl Config {
     }
 }
 
-fn read_chunk<T>(stream: T) -> Result<Vec<u8>, Box<dyn Error>>
-where
-    T: Read
-{
-    let mut v: Vec<u8> = vec![0u8; BUFSIZE];
-    let mut chunk = stream.take(BUFSIZE.try_into().unwrap());
-    let bytes_read = chunk.read(&mut v)?;
-    v.truncate(bytes_read);
-    Ok(v)
-}
-
 fn get_input_reader(config: Config) -> Result<Box<dyn Read>, io::Error> {
     match config.file_path {
         Some(file_path) => {
             let file_handle = fs::File::open(file_path)?;
-            Ok(Box::new(file_handle))
+            let boxed_handle = Box::new(file_handle);
+            Ok(boxed_handle)
         },
-        None => Ok(Box::new(io::stdin().lock()))
+        None => {
+            let boxed_stdin = Box::new(io::stdin().lock());
+            Ok(boxed_stdin)
+        }
     }
+}
+
+fn read_chunk<T>(stream: &mut T) -> Result<Vec<u8>, Box<dyn Error>>
+where
+    T: Read
+{
+    let mut v: Vec<u8> = vec![0u8; BUFSIZE];
+    let limit: u64 = BUFSIZE.try_into().unwrap();
+    let bytes_read = stream.take(limit).read(&mut v)?;
+    v.truncate(bytes_read);
+    Ok(v)
 }
 
 fn run(config: Config) -> Result<String, Box<dyn Error>> {
     let mut sha1 = SHA1::new();
-    let mut reader: Box<dyn Read>;
-    let mut last = false;
+    let input_reader: Box<dyn Read>;
+    let mut total_bytes: usize = 0;
 
-    reader = get_input_reader(config)?;
+    input_reader = get_input_reader(config)?;
+    let mut buf_input_reader = BufReader::new(input_reader);
 
-    while !last {
-        let buf = read_chunk(reader.by_ref())?;
-        last = buf.len() != BUFSIZE;
-        sha1.ingest(buf, last)?;
+    loop {
+        let mut buf = read_chunk(buf_input_reader.by_ref())?;
+        total_bytes += buf.len();
+
+        match buf.len() {
+            BUFSIZE => sha1.ingest(buf)?,
+            0 => break,
+            _ => {
+                sha1.pad_message(&mut buf, total_bytes);
+                sha1.ingest(buf)?;
+            }
+        }
     }
 
     Ok(sha1.digest())
