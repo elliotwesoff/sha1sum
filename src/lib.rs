@@ -1,4 +1,4 @@
-use std::{fmt::Display, io::{self, BufReader, Cursor, Read}};
+use std::{error::Error, fmt::Display, io::{self, BufReader, Cursor, Read}};
 
 pub struct SHA1 {
     h0: u32,
@@ -26,7 +26,7 @@ impl SHA1 {
         )
     }
 
-    pub fn ingest(&mut self, stream: Vec<u8>) -> io::Result<()> {
+    pub fn ingest(&mut self, stream: Vec<u8>) -> Result<(), Box<dyn Error>> {
         let mut stream_reader = BufReader::new(Cursor::new(stream));
 
         loop {
@@ -38,7 +38,7 @@ impl SHA1 {
             match bytes_read {
                 0  => return Ok(()),
                 64 => {
-                    self.ingest_chunk(buf);
+                    self.ingest_chunk(buf)?;
                     Ok(())
                 },
                 _  => Err(io::Error::new(
@@ -49,9 +49,9 @@ impl SHA1 {
         }
     }
 
-    fn ingest_chunk(&mut self, chunk: [u8; 64]) {
+    fn ingest_chunk(&mut self, chunk: [u8; 64]) -> Result<(), Box<dyn Error>> {
         // 1. Prepare the message schedule (W)
-        let msg_schedule = self.prepare_message_schedule(chunk);
+        let msg_schedule = self.prepare_message_schedule(chunk)?;
 
         // 2. Initialize the first five working variables (inc. temp var T)
         let mut tmp: u32;
@@ -84,28 +84,32 @@ impl SHA1 {
         self.h2 = c.wrapping_add(self.h2);
         self.h3 = d.wrapping_add(self.h3);
         self.h4 = e.wrapping_add(self.h4);
+
+        Ok(())
     }
 
-    pub fn pad_message(&self, message: &mut Vec<u8>, total_size: usize) {
+    pub fn pad_message(&self, message: &mut Vec<u8>, total_size: usize) -> Result<(), Box<dyn Error>> {
         let msg_len = message.len();
         let rem = msg_len % 64;
         let new_size = msg_len - rem + 64; // smooth brain solution v.v
-        let total_size_64: u64 = total_size.try_into().unwrap();
+        let total_size_64: u64 = total_size.try_into()?;
         let total_size_64_bytes = (total_size_64 * 8).to_be_bytes(); // len in bits, split into 8 bytes
 
         message.resize(new_size, 0);
         message[msg_len] = 0x80;
         message[new_size - 8..].copy_from_slice(&total_size_64_bytes);
+
+        Ok(())
     }
 
-    fn prepare_message_schedule(&self, chunk: [u8; 64]) -> [u32; 80] {
+    fn prepare_message_schedule(&self, chunk: [u8; 64]) -> Result<[u32; 80], Box<dyn Error>> {
         let mut schedule = [0u32; 80];
         let mut buf_reader = BufReader::new(Cursor::new(chunk));
 
         for i in 0..16 {
             let mut buf = [0u8; 4];
             let mut chunk = buf_reader.by_ref().take(4);
-            chunk.read(&mut buf).unwrap();
+            chunk.read(&mut buf)?;
             schedule[i] = u32::from_be_bytes(buf);
         }
 
@@ -114,7 +118,7 @@ impl SHA1 {
             schedule[i] = value.rotate_left(1);
         }
 
-        schedule
+        Ok(schedule)
     }
 
     fn f(&self, x: u32, y: u32, z: u32, t: usize) -> u32 {
@@ -195,7 +199,7 @@ mod sha1_tests {
         let mut sha1 = SHA1::new();
         let mut input: Vec<u8> = vec![];
         let len = input.len();
-        sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
+        let _ = sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
         sha1.ingest(input).expect("uh oh");
         assert_eq!("da39a3ee5e6b4b0d3255bfef95601890afd80709", sha1.digest());
     }
@@ -205,7 +209,7 @@ mod sha1_tests {
         let mut sha1 = SHA1::new();
         let mut input: Vec<u8> = b"test".to_vec();
         let len = input.len();
-        sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
+        let _ = sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
         sha1.ingest(input).expect("uh oh");
         assert_eq!("a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", sha1.digest());
     }
@@ -215,7 +219,7 @@ mod sha1_tests {
         let mut sha1 = SHA1::new();
         let mut input = b"this is a longer message to be digested that causes multiple 512-bit blocks to be processed".to_vec();
         let len = input.len();
-        sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
+        let _ = sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
         sha1.ingest(input).expect("uh oh");
         assert_eq!("59638ef75030bf4632b9b58d2eb41e20fa2b1f61", sha1.digest());
     }
@@ -227,7 +231,7 @@ mod sha1_tests {
         let len = input.len();
         let expected = 64;
 
-        sha1.pad_message(&mut input, len);
+        let _ = sha1.pad_message(&mut input, len);
         assert_eq!(
             expected, input.len(),
             "output length of {} is incorrect, should be {}",
@@ -246,7 +250,7 @@ mod sha1_tests {
         expected[3] = 0x80;
         expected[63] = 0x18;
 
-        sha1.pad_message(&mut input, len);
+        let _ = sha1.pad_message(&mut input, len);
         compare_arrays(&expected, &input);
     }
 
@@ -257,7 +261,7 @@ mod sha1_tests {
         let mut input: Vec<u8> = msg.as_bytes().iter().copied().collect();
         let len = input.len();
         let expected = 128;
-        sha1.pad_message(&mut input, len);
+        let _ = sha1.pad_message(&mut input, len);
         assert_eq!(
             expected, input.len(),
             "output length of {} is incorrect, should be {}",
@@ -278,7 +282,7 @@ mod sha1_tests {
         expected[126] = 0x02;
         expected[127] = 0xd8;
 
-        sha1.pad_message(&mut message, len);
+        let _ = sha1.pad_message(&mut message, len);
         compare_arrays(&expected, &message);
     }
 
@@ -286,7 +290,7 @@ mod sha1_tests {
     fn prepare_message_schedule_works_1() {
         let sha1 = SHA1::new();
         let padded_msg = [0u8; 64];
-        let actual = sha1.prepare_message_schedule(padded_msg);
+        let actual = sha1.prepare_message_schedule(padded_msg).unwrap();
         assert_eq!(actual.len(), 80);
     }
 
@@ -322,7 +326,7 @@ mod sha1_tests {
             0xE6E60B69, 0x00F60A00, 0x5795EF4F, 0x822E0879,
         ];
 
-        let actual = sha1.prepare_message_schedule(padded_msg);
+        let actual = sha1.prepare_message_schedule(padded_msg).unwrap();
         compare_arrays(expected.as_ref(), actual.as_ref());
     }
 

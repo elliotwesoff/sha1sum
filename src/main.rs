@@ -13,9 +13,7 @@ impl Config {
         mut args: impl Iterator<Item = String>
     ) -> Result<Config, &'static str> {
         args.next();
-
         let file_path = args.next();
-
         Ok(Config { file_path })
     }
 }
@@ -39,7 +37,7 @@ where
     T: Read
 {
     let mut v: Vec<u8> = vec![0u8; BUFSIZE];
-    let limit: u64 = BUFSIZE.try_into().unwrap();
+    let limit: u64 = BUFSIZE.try_into()?;
     let bytes_read = stream.take(limit).read(&mut v)?;
     v.truncate(bytes_read);
     Ok(v)
@@ -61,7 +59,7 @@ fn run(config: Config) -> Result<String, Box<dyn Error>> {
             BUFSIZE => sha1.ingest(buf)?,
             0 => break,
             _ => {
-                sha1.pad_message(&mut buf, total_bytes);
+                sha1.pad_message(&mut buf, total_bytes)?;
                 sha1.ingest(buf)?;
             }
         }
