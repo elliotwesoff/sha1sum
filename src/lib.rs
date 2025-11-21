@@ -1,4 +1,4 @@
-use std::{error::Error, fmt::Display, io::{self, BufReader, Cursor, Read}};
+use std::{fmt::Display, io::{self, BufReader, Cursor, Read}, num::TryFromIntError};
 
 pub struct SHA1 {
     h0: u32,
@@ -26,30 +26,34 @@ impl SHA1 {
         )
     }
 
-    pub fn ingest(&mut self, stream: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    pub fn ingest(&mut self, stream: Vec<u8>) -> Result<(), io::Error> {
         let mut stream_reader = BufReader::new(Cursor::new(stream));
 
         loop {
             let mut buf = [0u8; 64];
-            let mut chunk = stream_reader.by_ref().take(64);
-
-            let bytes_read = chunk.read(&mut buf)?;
-
-            match bytes_read {
-                0  => return Ok(()),
-                64 => {
-                    self.ingest_chunk(buf)?;
-                    Ok(())
-                },
-                _  => Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("bad message size, bytes read: {} != 64", bytes_read),
-                ))
-            }?;
+            match stream_reader.by_ref().read_exact(&mut buf) {
+                Err(_) => return Ok(()), // errors when end of buf is reached - done processing
+                _ => self.ingest_chunk(buf)?
+            }
         }
     }
 
-    fn ingest_chunk(&mut self, chunk: [u8; 64]) -> Result<(), Box<dyn Error>> {
+    pub fn pad_message(&self, message: &mut Vec<u8>, total_size: usize) -> Result<(), TryFromIntError> {
+        let msg_len = message.len();
+        let rem = msg_len % 64;
+        let new_size = msg_len - rem + 64; // smooth brain solution v.v
+        let total_size_64: u64 = total_size.try_into()?;
+        let total_size_64_bytes = (total_size_64 * 8).to_be_bytes(); // len in bits, split into 8 bytes
+
+        message.resize(new_size, 0);
+        message[msg_len] = 0x80;
+        message[new_size - 8..].copy_from_slice(&total_size_64_bytes);
+
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn ingest_chunk(&mut self, chunk: [u8; 64]) -> Result<(), io::Error> {
         // 1. Prepare the message schedule (W)
         let msg_schedule = self.prepare_message_schedule(chunk)?;
 
@@ -88,28 +92,14 @@ impl SHA1 {
         Ok(())
     }
 
-    pub fn pad_message(&self, message: &mut Vec<u8>, total_size: usize) -> Result<(), Box<dyn Error>> {
-        let msg_len = message.len();
-        let rem = msg_len % 64;
-        let new_size = msg_len - rem + 64; // smooth brain solution v.v
-        let total_size_64: u64 = total_size.try_into()?;
-        let total_size_64_bytes = (total_size_64 * 8).to_be_bytes(); // len in bits, split into 8 bytes
-
-        message.resize(new_size, 0);
-        message[msg_len] = 0x80;
-        message[new_size - 8..].copy_from_slice(&total_size_64_bytes);
-
-        Ok(())
-    }
-
-    fn prepare_message_schedule(&self, chunk: [u8; 64]) -> Result<[u32; 80], Box<dyn Error>> {
+    #[inline(always)]
+    fn prepare_message_schedule(&self, chunk: [u8; 64]) -> Result<[u32; 80], io::Error> {
+        let mut buf = [0u8; 4];
         let mut schedule = [0u32; 80];
         let mut buf_reader = BufReader::new(Cursor::new(chunk));
 
         for i in 0..16 {
-            let mut buf = [0u8; 4];
-            let mut chunk = buf_reader.by_ref().take(4);
-            chunk.read(&mut buf)?;
+            buf_reader.by_ref().read_exact(&mut buf)?;
             schedule[i] = u32::from_be_bytes(buf);
         }
 
@@ -121,6 +111,7 @@ impl SHA1 {
         Ok(schedule)
     }
 
+    #[inline(always)]
     fn f(&self, x: u32, y: u32, z: u32, t: usize) -> u32 {
         match t {
             0..20 => self.ch(x, y, z),
@@ -131,21 +122,22 @@ impl SHA1 {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn ch(&self, x: u32, y: u32, z: u32) -> u32 {
         (x & y) ^ (!x & z)
     }
 
-    #[inline]
+    #[inline(always)]
     fn parity(&self, x: u32, y: u32, z: u32) -> u32 {
         x ^ y ^ z
     }
 
-    #[inline]
+    #[inline(always)]
     fn maj(&self, x: u32, y: u32, z: u32) -> u32 {
         (x & y) ^ (x & z) ^ (y & z)
     }
 
+    #[inline(always)]
     #[allow(non_snake_case)]
     fn K(&self, t: usize) -> u32 {
         match t {
