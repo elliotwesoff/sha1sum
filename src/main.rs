@@ -32,27 +32,34 @@ fn get_input_reader(config: Config) -> Result<Box<dyn Read>, io::Error> {
     }
 }
 
-fn read_chunk<T>(stream: &mut T) -> Result<Vec<u8>, Box<dyn Error>>
+fn read_chunk<T>(stream: &mut T, limit: u64) -> Result<Vec<u8>, Box<dyn Error>>
 where
     T: Read
 {
     let mut v: Vec<u8> = vec![0u8; BUFSIZE];
-    let limit: u64 = BUFSIZE.try_into()?;
+
+    // TODO: take() doesn't guarantee that any number
+    // of bytes will be read. make sure the returned
+    // vector is full, or if not full, EOF is reached
+    // on the reader stream. (without this guarantee,
+    // the input may only be partially processed when
+    // run() returns).
     let bytes_read = stream.take(limit).read(&mut v)?;
+
     v.truncate(bytes_read);
     Ok(v)
 }
 
 fn run(config: Config) -> Result<String, Box<dyn Error>> {
     let mut sha1 = SHA1::new();
-    let input_reader: Box<dyn Read>;
     let mut total_bytes: usize = 0;
+    let limit: u64 = BUFSIZE.try_into()?;
 
-    input_reader = get_input_reader(config)?;
+    let input_reader = get_input_reader(config)?;
     let mut buf_input_reader = BufReader::new(input_reader);
 
     loop {
-        let mut buf = read_chunk(buf_input_reader.by_ref())?;
+        let mut buf = read_chunk(buf_input_reader.by_ref(), limit)?;
         total_bytes += buf.len();
 
         match buf.len() {
