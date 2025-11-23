@@ -57,10 +57,10 @@ fn run(config: Config) -> Result<String, Box<dyn Error>> {
 
         match buf.len() {
             BUFSIZE => sha1.ingest(buf)?,
-            0 => break,
             _ => {
                 sha1.pad_message(&mut buf, total_bytes)?;
                 sha1.ingest(buf)?;
+                break
             }
         }
     }
