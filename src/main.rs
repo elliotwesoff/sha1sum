@@ -1,5 +1,4 @@
 use std::{error::Error, fs, io::{self, BufReader, Read}, process};
-
 use sha1sum::SHA1;
 
 const BUFSIZE: usize = 8192;
