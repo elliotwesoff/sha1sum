@@ -50,16 +50,15 @@ where
     Ok(v)
 }
 
-fn run(config: Config) -> Result<String, Box<dyn Error>> {
+fn run<T>(mut reader: T) -> Result<String, Box<dyn Error>>
+where
+    T: Read
+{
     let mut sha1 = SHA1::new();
     let mut total_bytes: usize = 0;
-    let limit: u64 = BUFSIZE.try_into()?;
-
-    let input_reader = get_input_reader(config)?;
-    let mut buf_input_reader = BufReader::new(input_reader);
 
     loop {
-        let mut buf = read_chunk(buf_input_reader.by_ref(), limit)?;
+        let mut buf = read_chunk(reader.by_ref(), BUFSIZE as u64)?;
         total_bytes += buf.len();
 
         match buf.len() {
@@ -81,8 +80,23 @@ fn main() {
         process::exit(1);
     });
 
-    match run(config) {
-        Ok(hash) => println!("{hash}"),
+    let input_reader = get_input_reader(config).unwrap();
+
+    match run(BufReader::new(input_reader)) {
+        Ok(checksum) => println!("{checksum}"),
         Err(e) => eprintln!("{e}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+    use super::*;
+
+    #[test]
+    fn test_run_with_hello() {
+        let reader = Cursor::new(b"hello");
+        let output = run(reader).unwrap();
+        assert_eq!("aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d", output);
     }
 }
