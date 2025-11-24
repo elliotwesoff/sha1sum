@@ -19,21 +19,14 @@ impl SHA1 {
         }
     }
 
-    pub fn digest(&self) -> String {
-        format!(
-            "{:08x}{:08x}{:08x}{:08x}{:08x}",
-            self.h0, self.h1, self.h2, self.h3, self.h4
-        )
-    }
-
-    pub fn ingest(&mut self, stream: Vec<u8>) -> Result<(), io::Error> {
+    pub fn digest(&mut self, stream: Vec<u8>) -> Result<(), io::Error> {
         let mut stream_reader = BufReader::new(Cursor::new(stream));
 
         loop {
             let mut buf = [0u8; 64];
             match stream_reader.by_ref().read_exact(&mut buf) {
                 Err(_) => return Ok(()), // errors when end of buf is reached - done processing
-                _ => self.ingest_chunk(buf)?
+                _ => self.digest_chunk(buf)?
             }
         }
     }
@@ -53,7 +46,7 @@ impl SHA1 {
     }
 
     #[inline(always)]
-    fn ingest_chunk(&mut self, chunk: [u8; 64]) -> Result<(), io::Error> {
+    fn digest_chunk(&mut self, chunk: [u8; 64]) -> Result<(), io::Error> {
         // 1. Prepare the message schedule (W)
         let msg_schedule = self.prepare_message_schedule(chunk)?;
 
@@ -152,10 +145,13 @@ impl SHA1 {
 
 impl Display for SHA1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.digest())
+        write!(
+            f,
+            "{:08x}{:08x}{:08x}{:08x}{:08x}",
+            self.h0, self.h1, self.h2, self.h3, self.h4
+        )
     }
 }
-
 
 #[cfg(test)]
 mod sha1_tests {
@@ -163,7 +159,7 @@ mod sha1_tests {
     use super::*;
 
     #[test]
-    fn digest_works_1() {
+    fn to_string_works_1() {
         let mut sha1 = SHA1::new();
         sha1.h0 = 0x01010101;
         sha1.h1 = 0x02020202;
@@ -171,11 +167,11 @@ mod sha1_tests {
         sha1.h3 = 0x04040404;
         sha1.h4 = 0x05050505;
         let expected = "0101010102020202030303030404040405050505";
-        assert_eq!(expected, sha1.digest());
+        assert_eq!(expected, sha1.to_string());
     }
 
     #[test]
-    fn digest_works_2() {
+    fn to_string_works_2() {
         let mut sha1 = SHA1::new();
         sha1.h0 = 0xaaaaaaaa;
         sha1.h1 = 0xbbbbbbbb;
@@ -183,37 +179,37 @@ mod sha1_tests {
         sha1.h3 = 0xdddddddd;
         sha1.h4 = 0xeeeeeeee;
         let expected = "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeee";
-        assert_eq!(expected, sha1.digest());
+        assert_eq!(expected, sha1.to_string());
     }
 
     #[test]
-    fn ingest_works_1() {
+    fn digest_works_1() {
         let mut sha1 = SHA1::new();
         let mut input: Vec<u8> = vec![];
         let len = input.len();
         let _ = sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
-        sha1.ingest(input).expect("uh oh");
-        assert_eq!("da39a3ee5e6b4b0d3255bfef95601890afd80709", sha1.digest());
+        sha1.digest(input).expect("uh oh");
+        assert_eq!("da39a3ee5e6b4b0d3255bfef95601890afd80709", sha1.to_string());
     }
 
     #[test]
-    fn ingest_works_2() {
+    fn digest_works_2() {
         let mut sha1 = SHA1::new();
         let mut input: Vec<u8> = b"test".to_vec();
         let len = input.len();
         let _ = sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
-        sha1.ingest(input).expect("uh oh");
-        assert_eq!("a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", sha1.digest());
+        sha1.digest(input).expect("uh oh");
+        assert_eq!("a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", sha1.to_string());
     }
 
     #[test]
-    fn ingest_works_3() {
+    fn digest_works_3() {
         let mut sha1 = SHA1::new();
         let mut input = b"this is a longer message to be digested that causes multiple 512-bit blocks to be processed".to_vec();
         let len = input.len();
         let _ = sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
-        sha1.ingest(input).expect("uh oh");
-        assert_eq!("59638ef75030bf4632b9b58d2eb41e20fa2b1f61", sha1.digest());
+        sha1.digest(input).expect("uh oh");
+        assert_eq!("59638ef75030bf4632b9b58d2eb41e20fa2b1f61", sha1.to_string());
     }
 
     #[test]
