@@ -1,4 +1,4 @@
-use std::{fmt::Display, io::{self, BufReader, Cursor, Read}, num::TryFromIntError};
+use std::{error::Error, fmt::Display, io::{Cursor, Read}, num::TryFromIntError};
 
 pub struct SHA1 {
     h0: u32,
@@ -19,16 +19,12 @@ impl SHA1 {
         }
     }
 
-    pub fn digest(&mut self, stream: Vec<u8>) -> Result<(), io::Error> {
-        let mut stream_reader = BufReader::new(Cursor::new(stream));
-
-        loop {
-            let mut buf = [0u8; 64];
-            match stream_reader.by_ref().read_exact(&mut buf) {
-                Err(_) => return Ok(()), // errors when end of buf is reached - done processing
-                _ => self.digest_chunk(buf)?
-            }
+    pub fn digest(&mut self, input_stream: &[u8]) -> Result<(), PaddingError> {
+        for chunk in input_stream.chunks(64) {
+            self.digest_chunk(chunk)?
         }
+
+        Ok(())
     }
 
     pub fn pad_message(&self, message: &mut Vec<u8>, total_size: usize) -> Result<(), TryFromIntError> {
@@ -46,7 +42,7 @@ impl SHA1 {
     }
 
     #[inline(always)]
-    fn digest_chunk(&mut self, chunk: [u8; 64]) -> Result<(), io::Error> {
+    fn digest_chunk(&mut self, chunk: &[u8]) -> Result<(), PaddingError> {
         // 1. Prepare the message schedule (W)
         let msg_schedule = self.prepare_message_schedule(chunk)?;
 
@@ -86,13 +82,16 @@ impl SHA1 {
     }
 
     #[inline(always)]
-    fn prepare_message_schedule(&self, chunk: [u8; 64]) -> Result<[u32; 80], io::Error> {
+    fn prepare_message_schedule(&self, chunk: &[u8]) -> Result<[u32; 80], PaddingError> {
         let mut buf = [0u8; 4];
         let mut schedule = [0u32; 80];
-        let mut buf_reader = BufReader::new(Cursor::new(chunk));
+        let mut cursor = Cursor::new(chunk);
 
         for i in 0..16 {
-            buf_reader.by_ref().read_exact(&mut buf)?;
+            if let Err(_) = cursor.by_ref().read_exact(&mut buf) {
+                return Err(PaddingError);
+            }
+
             schedule[i] = u32::from_be_bytes(buf);
         }
 
@@ -153,6 +152,17 @@ impl Display for SHA1 {
     }
 }
 
+#[derive(Debug)]
+pub struct PaddingError;
+
+impl Display for PaddingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "input is not padded correctly")
+    }
+}
+
+impl Error for PaddingError {}
+
 #[cfg(test)]
 mod sha1_tests {
     use std::{fmt::Debug, vec};
@@ -188,7 +198,7 @@ mod sha1_tests {
         let mut input: Vec<u8> = vec![];
         let len = input.len();
         let _ = sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
-        sha1.digest(input).expect("uh oh");
+        sha1.digest(&input).expect("uh oh");
         assert_eq!("da39a3ee5e6b4b0d3255bfef95601890afd80709", sha1.to_string());
     }
 
@@ -198,7 +208,7 @@ mod sha1_tests {
         let mut input: Vec<u8> = b"test".to_vec();
         let len = input.len();
         let _ = sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
-        sha1.digest(input).expect("uh oh");
+        sha1.digest(&input).expect("uh oh");
         assert_eq!("a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", sha1.to_string());
     }
 
@@ -208,7 +218,7 @@ mod sha1_tests {
         let mut input = b"this is a longer message to be digested that causes multiple 512-bit blocks to be processed".to_vec();
         let len = input.len();
         let _ = sha1.pad_message(&mut input, len); // TODO: don't rely on pad_message() to work
-        sha1.digest(input).expect("uh oh");
+        sha1.digest(&input).expect("uh oh");
         assert_eq!("59638ef75030bf4632b9b58d2eb41e20fa2b1f61", sha1.to_string());
     }
 
@@ -278,7 +288,7 @@ mod sha1_tests {
     fn prepare_message_schedule_works_1() {
         let sha1 = SHA1::new();
         let padded_msg = [0u8; 64];
-        let actual = sha1.prepare_message_schedule(padded_msg).unwrap();
+        let actual = sha1.prepare_message_schedule(&padded_msg).unwrap();
         assert_eq!(actual.len(), 80);
     }
 
@@ -314,7 +324,7 @@ mod sha1_tests {
             0xE6E60B69, 0x00F60A00, 0x5795EF4F, 0x822E0879,
         ];
 
-        let actual = sha1.prepare_message_schedule(padded_msg).unwrap();
+        let actual = sha1.prepare_message_schedule(&padded_msg).unwrap();
         compare_arrays(expected.as_ref(), actual.as_ref());
     }
 

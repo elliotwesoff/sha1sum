@@ -61,10 +61,10 @@ where
         total_bytes += buf.len();
 
         match buf.len() {
-            BUFSIZE => sha1.digest(buf)?,
+            BUFSIZE => sha1.digest(&buf)?,
             _ => {
                 sha1.pad_message(&mut buf, total_bytes)?;
-                sha1.digest(buf)?;
+                sha1.digest(&buf)?;
                 break
             }
         }
