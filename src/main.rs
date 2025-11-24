@@ -35,17 +35,8 @@ fn read_chunk<T>(stream: &mut T, limit: u64) -> Result<Vec<u8>, Box<dyn Error>>
 where
     T: Read
 {
-    let mut v: Vec<u8> = vec![0u8; BUFSIZE];
-
-    // TODO: take() doesn't guarantee that any number
-    // of bytes will be read. make sure the returned
-    // vector is full, or if not full, EOF is reached
-    // on the reader stream. (without this guarantee,
-    // the input may only be partially processed when
-    // run() returns).
-    let bytes_read = stream.take(limit).read(&mut v)?;
-
-    v.truncate(bytes_read);
+    let mut v: Vec<u8> = vec![];
+    stream.take(limit).read_to_end(&mut v)?;
     Ok(v)
 }
 
