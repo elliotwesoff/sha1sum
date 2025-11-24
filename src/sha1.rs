@@ -110,7 +110,7 @@ impl SHA1 {
             20..40 => self.parity(x, y, z),
             40..60 => self.maj(x, y, z),
             60..80 => self.parity(x, y, z),
-            _ => panic!("invalid t parameter provieded to f(): {}", t)
+            _ => panic!("invalid t parameter provided to f(): {}", t)
         }
     }
 
