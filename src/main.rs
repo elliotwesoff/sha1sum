@@ -1,4 +1,8 @@
 use std::{error::Error, fs, io::{self, BufReader, Read}, process};
+use std::process::Command;
+use std::fs::File;
+use std::io::Write;
+use tempfile::NamedTempFile;
 use sha1sum::SHA1;
 
 const BUFSIZE: usize = 8192;
