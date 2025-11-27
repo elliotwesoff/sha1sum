@@ -1,8 +1,5 @@
-use std::{error::Error, fs, io::{self, BufReader, Read}, process};
-use std::process::Command;
+use std::{error::Error, fs, io::{self, BufReader, Read, StdinLock}, process};
 use std::fs::File;
-use std::io::Write;
-use tempfile::NamedTempFile;
 use sha1sum::SHA1;
 
 const BUFSIZE: usize = 8192;
@@ -21,21 +18,33 @@ impl Config {
     }
 }
 
-fn get_input_reader(config: Config) -> Result<Box<dyn Read>, io::Error> {
-    match config.file_path {
-        Some(file_path) => {
-            let file_handle = fs::File::open(file_path)?;
-            let boxed_handle = Box::new(file_handle);
-            Ok(boxed_handle)
-        },
-        None => {
-            let boxed_stdin = Box::new(io::stdin().lock());
-            Ok(boxed_stdin)
+enum Readers<'a> {
+    File(File),
+    Stdin(StdinLock<'a>)
+}
+
+impl Read for Readers<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Readers::File(file) => file.read(buf),
+            Readers::Stdin(stdin_lock) => stdin_lock.read(buf),
         }
     }
 }
 
-fn read_chunk<T>(stream: &mut T, limit: u64) -> Result<Vec<u8>, Box<dyn Error>>
+fn get_input_reader<'a>(config: Config) -> Result<Readers<'a>, io::Error> {
+    match config.file_path {
+        Some(file_path) => {
+            let file_handle = fs::File::open(file_path)?;
+            Ok(Readers::File(file_handle))
+        },
+        None => {
+            Ok(Readers::Stdin(io::stdin().lock()))
+        }
+    }
+}
+
+fn read_chunk<T>(stream: &mut T, limit: u64) -> Result<Vec<u8>, io::Error>
 where
     T: Read
 {
