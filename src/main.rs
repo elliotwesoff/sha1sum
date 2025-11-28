@@ -44,16 +44,7 @@ fn get_input_reader<'a>(config: Config) -> Result<Readers<'a>, io::Error> {
     }
 }
 
-fn read_chunk<T>(stream: &mut T, limit: u64) -> Result<Vec<u8>, io::Error>
-where
-    T: Read
-{
-    let mut v: Vec<u8> = vec![];
-    stream.take(limit).read_to_end(&mut v)?;
-    Ok(v)
-}
-
-fn run<T>(mut reader: T) -> Result<String, Box<dyn Error>>
+fn run<T>(mut reader: T) -> Result<String, Box<dyn Error>> // TODO: better result error type
 where
     T: Read
 {
@@ -61,8 +52,11 @@ where
     let mut total_bytes: usize = 0;
 
     loop {
-        let mut buf = read_chunk(reader.by_ref(), BUFSIZE as u64)?;
-        total_bytes += buf.len();
+        let mut buf: Vec<u8> = vec![];
+
+        total_bytes += reader.by_ref()
+                             .take(BUFSIZE as u64)
+                             .read_to_end(&mut buf)?;
 
         match buf.len() {
             BUFSIZE => sha1.digest(&buf)?,
