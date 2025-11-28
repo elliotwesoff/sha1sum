@@ -18,28 +18,28 @@ impl Config {
     }
 }
 
-enum Readers<'a> {
+enum StreamSource<'a> {
     File(File),
     Stdin(StdinLock<'a>)
 }
 
-impl Read for Readers<'_> {
+impl Read for StreamSource<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
-            Readers::File(file) => file.read(buf),
-            Readers::Stdin(stdin_lock) => stdin_lock.read(buf),
+            StreamSource::File(file) => file.read(buf),
+            StreamSource::Stdin(stdin_lock) => stdin_lock.read(buf),
         }
     }
 }
 
-fn get_input_reader<'a>(config: Config) -> Result<Readers<'a>, io::Error> {
+fn get_input_reader<'a>(config: Config) -> Result<StreamSource<'a>, io::Error> {
     match config.file_path {
         Some(file_path) => {
             let file_handle = fs::File::open(file_path)?;
-            Ok(Readers::File(file_handle))
+            Ok(StreamSource::File(file_handle))
         },
         None => {
-            Ok(Readers::Stdin(io::stdin().lock()))
+            Ok(StreamSource::Stdin(io::stdin().lock()))
         }
     }
 }
