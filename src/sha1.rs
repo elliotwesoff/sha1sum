@@ -20,7 +20,9 @@ impl SHA1 {
     }
 
     pub fn digest(&mut self, input_stream: &[u8]) -> Result<(), PaddingError> {
-        for chunk in input_stream.chunks(64) {
+        let chunks = input_stream.chunks(64);
+
+        for chunk in chunks {
             self.digest_chunk(chunk)?
         }
 
@@ -55,13 +57,53 @@ impl SHA1 {
         let mut e = self.h4;
 
         // 3. Process the eighty schedule messages
-        for t in 0..80 {
-            let t = t as usize;
-
+        for t in 0..20 {
             tmp = a.rotate_left(5)
-                   .wrapping_add(self.f(b, c, d, t))
+                   .wrapping_add(self.ch(b, c, d))
                    .wrapping_add(e)
-                   .wrapping_add(self.K(t))
+                   .wrapping_add(0x5a827999)
+                   .wrapping_add(msg_schedule[t]);
+
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = tmp;
+        }
+
+        for t in 20..40 {
+            tmp = a.rotate_left(5)
+                   .wrapping_add(self.parity(b, c, d))
+                   .wrapping_add(e)
+                   .wrapping_add(0x6ed9eba1)
+                   .wrapping_add(msg_schedule[t]);
+
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = tmp;
+        }
+
+        for t in 40..60 {
+            tmp = a.rotate_left(5)
+                   .wrapping_add(self.maj(b, c, d))
+                   .wrapping_add(e)
+                   .wrapping_add(0x8f1bbcdc)
+                   .wrapping_add(msg_schedule[t]);
+
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = tmp;
+        }
+
+        for t in 60..80 {
+            tmp = a.rotate_left(5)
+                   .wrapping_add(self.parity(b, c, d))
+                   .wrapping_add(e)
+                   .wrapping_add(0xca62c1d6)
                    .wrapping_add(msg_schedule[t]);
 
             e = d;
@@ -104,17 +146,6 @@ impl SHA1 {
     }
 
     #[inline(always)]
-    fn f(&self, x: u32, y: u32, z: u32, t: usize) -> u32 {
-        match t {
-            0..20 => self.ch(x, y, z),
-            20..40 => self.parity(x, y, z),
-            40..60 => self.maj(x, y, z),
-            60..80 => self.parity(x, y, z),
-            _ => panic!("invalid t parameter provided to f(): {}", t)
-        }
-    }
-
-    #[inline(always)]
     fn ch(&self, x: u32, y: u32, z: u32) -> u32 {
         (x & y) ^ (!x & z)
     }
@@ -127,18 +158,6 @@ impl SHA1 {
     #[inline(always)]
     fn maj(&self, x: u32, y: u32, z: u32) -> u32 {
         (x & y) ^ (x & z) ^ (y & z)
-    }
-
-    #[inline(always)]
-    #[allow(non_snake_case)]
-    fn K(&self, t: usize) -> u32 {
-        match t {
-            0..20 => 0x5a827999,
-            20..40 => 0x6ed9eba1,
-            40..60 => 0x8f1bbcdc,
-            60..80 => 0xca62c1d6,
-            _ => panic!("invalid t parameter provided to K(): {}", t)
-        }
     }
 }
 
@@ -344,67 +363,6 @@ mod sha1_tests {
     fn maj_works() {
         let sha1 = SHA1::new();
         assert_eq!(108, sha1.maj(100, 200, 300));
-    }
-
-    #[test]
-    fn k_works_1() {
-        let sha1 = SHA1::new();
-        assert_eq!(0x5a827999, sha1.K(0));
-        assert_eq!(0x5a827999, sha1.K(10));
-        assert_eq!(0x5a827999, sha1.K(19));
-    }
-
-    #[test]
-    fn k_works_2() {
-        let sha1 = SHA1::new();
-        assert_eq!(0x6ed9eba1, sha1.K(20));
-        assert_eq!(0x6ed9eba1, sha1.K(30));
-        assert_eq!(0x6ed9eba1, sha1.K(39));
-    }
-
-    #[test]
-    fn k_works_3() {
-        let sha1 = SHA1::new();
-        assert_eq!(0x8f1bbcdc, sha1.K(40));
-        assert_eq!(0x8f1bbcdc, sha1.K(50));
-        assert_eq!(0x8f1bbcdc, sha1.K(59));
-    }
-
-    #[test]
-    fn k_works_4() {
-        let sha1 = SHA1::new();
-        assert_eq!(0xca62c1d6, sha1.K(60));
-    }
-
-    #[test]
-    fn f_works_1() {
-        let sha1 = SHA1::new();
-        assert_eq!(sha1.ch(1, 2, 3), sha1.f(1, 2, 3, 0));
-    }
-
-    #[test]
-    fn f_works_2() {
-        let sha1 = SHA1::new();
-        assert_eq!(sha1.parity(1, 2, 3), sha1.f(1, 2, 3, 20));
-    }
-
-    #[test]
-    fn f_works_3() {
-        let sha1 = SHA1::new();
-        assert_eq!(sha1.maj(1, 2, 3), sha1.f(1, 2, 3, 40));
-    }
-
-    #[test]
-    fn f_works_4() {
-        let sha1 = SHA1::new();
-        assert_eq!(sha1.parity(1, 2, 3), sha1.f(1, 2, 3, 60));
-    }
-
-    #[test]
-    #[should_panic]
-    fn f_works_5() {
-        let sha1 = SHA1::new();
-        sha1.f(1, 2, 3, 80);
     }
 
     trait Unsigned {}
