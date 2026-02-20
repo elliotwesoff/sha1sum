@@ -32,18 +32,6 @@ impl Read for StreamSource<'_> {
     }
 }
 
-fn get_input_reader<'a>(config: Config) -> Result<StreamSource<'a>, io::Error> {
-    match config.file_path {
-        Some(file_path) => {
-            let file_handle = fs::File::open(file_path)?;
-            Ok(StreamSource::File(file_handle))
-        },
-        None => {
-            Ok(StreamSource::Stdin(io::stdin().lock()))
-        }
-    }
-}
-
 fn run<T>(mut reader: T) -> Result<String, Box<dyn Error>> // TODO: better result error type
 where
     T: Read
@@ -77,9 +65,22 @@ fn main() {
         process::exit(1);
     });
 
-    let input_reader = get_input_reader(config).unwrap();
+    let input_reader = match config.file_path {
+        Some(file_path) => {
+            let file_handle = fs::File::open(&file_path).unwrap_or_else(|err| {
+                println!("Cannot open file {}: {:?}", file_path, err);
+                process::exit(1);
+            });
+            StreamSource::File(file_handle)
+        },
+        None => {
+            StreamSource::Stdin(io::stdin().lock())
+        }
+    };
 
-    match run(BufReader::new(input_reader)) {
+    let buf_input_reader = BufReader::new(input_reader);
+
+    match run(buf_input_reader) {
         Ok(checksum) => println!("{checksum}"),
         Err(e) => eprintln!("{e}")
     }
