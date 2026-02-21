@@ -19,6 +19,7 @@ fn sha1_e2e_test() {
         .to_string();
 
     let ours = Command::new(env!("CARGO_BIN_EXE_sha1sum"))
+        .arg("1")
         .arg(f.path())
         .output()
         .unwrap();

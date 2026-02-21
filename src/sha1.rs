@@ -1,4 +1,6 @@
-use std::{error::Error, fmt::Display, io::{Cursor, Read}, num::TryFromIntError};
+use std::{fmt::Display, io::{Cursor, Read}};
+use crate::errors::PaddingError;
+use crate::sha::SHA;
 
 pub struct SHA1 {
     h0: u32,
@@ -19,108 +21,19 @@ impl SHA1 {
         }
     }
 
-    pub fn digest(&mut self, input_stream: &[u8]) -> Result<(), PaddingError> {
-        let chunks = input_stream.chunks(64);
-
-        for chunk in chunks {
-            self.digest_chunk(chunk)?
-        }
-
-        Ok(())
-    }
-
-    pub fn pad_message(&self, message: &mut Vec<u8>, total_size: usize) -> Result<(), TryFromIntError> {
-        let msg_len = message.len();
-        let rem = msg_len % 64;
-        let new_size = msg_len - rem + 64; // smooth brain solution v.v
-        let total_size_64: u64 = total_size.try_into()?;
-        let total_size_64_bytes = (total_size_64 * 8).to_be_bytes(); // len in bits, split into 8 bytes
-
-        message.resize(new_size, 0);
-        message[msg_len] = 0x80;
-        message[new_size - 8..].copy_from_slice(&total_size_64_bytes);
-
-        Ok(())
+    #[inline(always)]
+    fn ch(&self, x: u32, y: u32, z: u32) -> u32 {
+        (x & y) ^ (!x & z)
     }
 
     #[inline(always)]
-    fn digest_chunk(&mut self, chunk: &[u8]) -> Result<(), PaddingError> {
-        // 1. Prepare the message schedule (W)
-        let msg_schedule = self.prepare_message_schedule(chunk)?;
+    fn parity(&self, x: u32, y: u32, z: u32) -> u32 {
+        x ^ y ^ z
+    }
 
-        // 2. Initialize the first five working variables (inc. temp var T)
-        let mut tmp: u32;
-        let mut a = self.h0;
-        let mut b = self.h1;
-        let mut c = self.h2;
-        let mut d = self.h3;
-        let mut e = self.h4;
-
-        // 3. Process the eighty schedule messages
-        for t in 0..20 {
-            tmp = a.rotate_left(5)
-                   .wrapping_add(self.ch(b, c, d))
-                   .wrapping_add(e)
-                   .wrapping_add(0x5a827999)
-                   .wrapping_add(msg_schedule[t]);
-
-            e = d;
-            d = c;
-            c = b.rotate_left(30);
-            b = a;
-            a = tmp;
-        }
-
-        for t in 20..40 {
-            tmp = a.rotate_left(5)
-                   .wrapping_add(self.parity(b, c, d))
-                   .wrapping_add(e)
-                   .wrapping_add(0x6ed9eba1)
-                   .wrapping_add(msg_schedule[t]);
-
-            e = d;
-            d = c;
-            c = b.rotate_left(30);
-            b = a;
-            a = tmp;
-        }
-
-        for t in 40..60 {
-            tmp = a.rotate_left(5)
-                   .wrapping_add(self.maj(b, c, d))
-                   .wrapping_add(e)
-                   .wrapping_add(0x8f1bbcdc)
-                   .wrapping_add(msg_schedule[t]);
-
-            e = d;
-            d = c;
-            c = b.rotate_left(30);
-            b = a;
-            a = tmp;
-        }
-
-        for t in 60..80 {
-            tmp = a.rotate_left(5)
-                   .wrapping_add(self.parity(b, c, d))
-                   .wrapping_add(e)
-                   .wrapping_add(0xca62c1d6)
-                   .wrapping_add(msg_schedule[t]);
-
-            e = d;
-            d = c;
-            c = b.rotate_left(30);
-            b = a;
-            a = tmp;
-        }
-
-        // 4. Compute the ith intermediate hash value, H^(i)
-        self.h0 = a.wrapping_add(self.h0);
-        self.h1 = b.wrapping_add(self.h1);
-        self.h2 = c.wrapping_add(self.h2);
-        self.h3 = d.wrapping_add(self.h3);
-        self.h4 = e.wrapping_add(self.h4);
-
-        Ok(())
+    #[inline(always)]
+    fn maj(&self, x: u32, y: u32, z: u32) -> u32 {
+        (x & y) ^ (x & z) ^ (y & z)
     }
 
     #[inline(always)]
@@ -144,20 +57,87 @@ impl SHA1 {
 
         Ok(schedule)
     }
+}
 
+impl SHA for SHA1 {
     #[inline(always)]
-    fn ch(&self, x: u32, y: u32, z: u32) -> u32 {
-        (x & y) ^ (!x & z)
-    }
+    fn digest_chunk(&mut self, chunk: &[u8]) -> Result<(), PaddingError> {
+        // 1. Prepare the message schedule (W)
+        let msg_schedule = self.prepare_message_schedule(chunk)?;
 
-    #[inline(always)]
-    fn parity(&self, x: u32, y: u32, z: u32) -> u32 {
-        x ^ y ^ z
-    }
+        // 2. Initialize the first five working variables (inc. temp var T)
+        let mut tmp: u32;
+        let mut a = self.h0;
+        let mut b = self.h1;
+        let mut c = self.h2;
+        let mut d = self.h3;
+        let mut e = self.h4;
 
-    #[inline(always)]
-    fn maj(&self, x: u32, y: u32, z: u32) -> u32 {
-        (x & y) ^ (x & z) ^ (y & z)
+        // 3. Process the eighty schedule messages
+        for t in 0..20 {
+            tmp = a.rotate_left(5)
+                .wrapping_add(self.ch(b, c, d))
+                .wrapping_add(e)
+                .wrapping_add(0x5a827999)
+                .wrapping_add(msg_schedule[t]);
+
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = tmp;
+        }
+
+        for t in 20..40 {
+            tmp = a.rotate_left(5)
+                .wrapping_add(self.parity(b, c, d))
+                .wrapping_add(e)
+                .wrapping_add(0x6ed9eba1)
+                .wrapping_add(msg_schedule[t]);
+
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = tmp;
+        }
+
+        for t in 40..60 {
+            tmp = a.rotate_left(5)
+                .wrapping_add(self.maj(b, c, d))
+                .wrapping_add(e)
+                .wrapping_add(0x8f1bbcdc)
+                .wrapping_add(msg_schedule[t]);
+
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = tmp;
+        }
+
+        for t in 60..80 {
+            tmp = a.rotate_left(5)
+                .wrapping_add(self.parity(b, c, d))
+                .wrapping_add(e)
+                .wrapping_add(0xca62c1d6)
+                .wrapping_add(msg_schedule[t]);
+
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = tmp;
+        }
+
+        // 4. Compute the ith intermediate hash value, H^(i)
+        self.h0 = a.wrapping_add(self.h0);
+        self.h1 = b.wrapping_add(self.h1);
+        self.h2 = c.wrapping_add(self.h2);
+        self.h3 = d.wrapping_add(self.h3);
+        self.h4 = e.wrapping_add(self.h4);
+
+        Ok(())
     }
 }
 
@@ -170,17 +150,6 @@ impl Display for SHA1 {
         )
     }
 }
-
-#[derive(Debug)]
-pub struct PaddingError;
-
-impl Display for PaddingError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "input is not padded correctly")
-    }
-}
-
-impl Error for PaddingError {}
 
 #[cfg(test)]
 mod sha1_tests {
